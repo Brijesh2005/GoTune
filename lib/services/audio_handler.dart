@@ -37,6 +37,12 @@ class GoTuneAudioHandler extends BaseAudioHandler with SeekHandler {
   final List<MediaItem> _playlist = [];
   bool _isDisposed = false;
 
+  /// Optional dynamic resolver called when a queued track lacks a pre-resolved stream URL.
+  Future<String?> Function(MediaItem item)? onResolveStreamUrl;
+
+  /// Callback fired when playback approaches the end of the queue, triggering infinite radio auto-fetch.
+  VoidCallback? onQueueNearEnd;
+
   AudioPlayer get player => _player;
   int get currentIndex => _currentIndex;
   List<MediaItem> get playlist => List.unmodifiable(_playlist);
@@ -164,8 +170,12 @@ class GoTuneAudioHandler extends BaseAudioHandler with SeekHandler {
       skipToNext();
     } else {
       if (_currentIndex + 1 < _playlist.length) {
+        if (_currentIndex + 2 >= _playlist.length) {
+          onQueueNearEnd?.call();
+        }
         skipToNext();
       } else {
+        onQueueNearEnd?.call();
         stop();
       }
     }
@@ -322,7 +332,15 @@ class GoTuneAudioHandler extends BaseAudioHandler with SeekHandler {
     final item = _playlist[index];
     mediaItem.add(item);
 
-    final streamUrl = item.extras?['streamUrl'] as String?;
+    var streamUrl = item.extras?['streamUrl'] as String?;
+    if ((streamUrl == null || streamUrl.isEmpty) && onResolveStreamUrl != null) {
+      try {
+        streamUrl = await onResolveStreamUrl!(item);
+      } catch (e) {
+        debugPrint('[GoTuneAudioHandler] onResolveStreamUrl dynamic error: $e');
+      }
+    }
+
     final mirrors = (item.extras?['mirrors'] as List<dynamic>?)
             ?.map((e) => e.toString())
             .toList() ??
@@ -410,7 +428,11 @@ class GoTuneAudioHandler extends BaseAudioHandler with SeekHandler {
     if (_currentIndex + 1 < _playlist.length) {
       _currentIndex++;
       await _playTrackAtIndex(_currentIndex);
+      if (_currentIndex + 2 >= _playlist.length) {
+        onQueueNearEnd?.call();
+      }
     } else {
+      onQueueNearEnd?.call();
       final repeat = playbackState.value.repeatMode;
       if (repeat == AudioServiceRepeatMode.all || repeat == AudioServiceRepeatMode.group) {
         _currentIndex = 0;

@@ -34,7 +34,11 @@ class TrackTile extends StatelessWidget {
     return InkWell(
       onTap: onTap ??
           () {
-            playerProvider.playTrack(track, playlist: queue);
+            if (queue != null && queue!.isNotEmpty) {
+              playerProvider.playTrack(track, playlist: queue);
+            } else {
+              playerProvider.playWithSmartRadio(track);
+            }
           },
       borderRadius: BorderRadius.circular(12),
       child: Container(

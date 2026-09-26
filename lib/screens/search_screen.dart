@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/app_constants.dart';
+import '../providers/audio_player_provider.dart';
 import '../providers/music_provider.dart';
 import '../theme/app_colors.dart';
 import '../widgets/error_view.dart';
@@ -254,7 +255,9 @@ class _SearchScreenState extends State<SearchScreen> {
         final track = music.searchResults[index];
         return TrackTile(
           track: track,
-          queue: music.searchResults,
+          onTap: () {
+            context.read<AudioPlayerProvider>().playWithSmartRadio(track);
+          },
         );
       },
     );

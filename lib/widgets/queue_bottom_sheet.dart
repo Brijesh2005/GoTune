@@ -227,19 +227,109 @@ class QueueBottomSheet extends StatelessWidget {
                 ],
 
                 // 2. Upcoming Tracks Section
+                if (player.radioSeedArtist != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.auto_awesome_rounded, color: AppColors.primary, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Smart Radio • Related to ${player.radioSeedArtist}',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (player.isGeneratingRadio)
+                          const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                          )
+                        else
+                          InkWell(
+                            onTap: () => player.refreshSmartRadio(),
+                            borderRadius: BorderRadius.circular(8),
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(Icons.refresh_rounded, color: AppColors.primary, size: 18),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
                 Padding(
                   padding: const EdgeInsets.only(left: 4, bottom: 8),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'UP NEXT',
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.1,
-                        ),
+                      Row(
+                        children: [
+                          const Text(
+                            'UP NEXT',
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.1,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          InkWell(
+                            onTap: () => player.toggleAutoPlayRadio(),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: player.autoPlayRadio
+                                    ? AppColors.primary.withValues(alpha: 0.15)
+                                    : AppColors.surfaceElevated,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: player.autoPlayRadio
+                                      ? AppColors.primary.withValues(alpha: 0.4)
+                                      : AppColors.border,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.all_inclusive_rounded,
+                                    size: 13,
+                                    color: player.autoPlayRadio
+                                        ? AppColors.primary
+                                        : AppColors.textMuted,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Autoplay',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: player.autoPlayRadio
+                                          ? AppColors.primary
+                                          : AppColors.textMuted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       if (upcomingTracks.isNotEmpty)
                         const Text(

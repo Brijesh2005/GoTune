@@ -273,7 +273,7 @@ class HomeScreen extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: () {
-            audioPlayer.playTrack(track);
+            audioPlayer.playWithSmartRadio(track);
             NowPlayingScreen.show(context);
           },
           child: Padding(

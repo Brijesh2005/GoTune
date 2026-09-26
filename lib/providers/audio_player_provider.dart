@@ -5,6 +5,7 @@ import '../models/track.dart';
 import '../repositories/recently_played_repository.dart';
 import '../repositories/track_repository.dart';
 import '../services/audio_handler.dart';
+import '../services/music_algorithm_service.dart';
 
 /// Comprehensive provider managing active audio playback, interactive queue manipulation,
 /// live seek scrubbing, and playback failure resilience.
@@ -12,6 +13,7 @@ class AudioPlayerProvider extends ChangeNotifier {
   final GoTuneAudioHandler _audioHandler;
   final TrackRepository _repository;
   final RecentlyPlayedRepository? _recentlyPlayedRepository;
+  late final MusicAlgorithmService _algorithmService;
 
   Track? _currentTrack;
   List<Track> _queue = [];
@@ -29,6 +31,11 @@ class AudioPlayerProvider extends ChangeNotifier {
   AudioServiceRepeatMode _repeatMode = AudioServiceRepeatMode.none;
   List<Track> _unshuffledQueue = [];
 
+  // Algorithm & Smart Radio States
+  bool _isGeneratingRadio = false;
+  bool _autoPlayRadio = true;
+  String? _radioSeedArtist;
+
   // Sleep Timer
   Timer? _sleepTimer;
   Timer? _sleepCountdownTimer;
@@ -45,10 +52,13 @@ class AudioPlayerProvider extends ChangeNotifier {
     required GoTuneAudioHandler audioHandler,
     required TrackRepository repository,
     RecentlyPlayedRepository? recentlyPlayedRepository,
+    MusicAlgorithmService? algorithmService,
   })  : _audioHandler = audioHandler,
         _repository = repository,
-        _recentlyPlayedRepository = recentlyPlayedRepository {
+        _recentlyPlayedRepository = recentlyPlayedRepository,
+        _algorithmService = algorithmService ?? MusicAlgorithmService(repository: repository) {
     _bindStreams();
+    _setupAudioHandlerCallbacks();
   }
 
   // --- Getters ---
@@ -69,6 +79,32 @@ class AudioPlayerProvider extends ChangeNotifier {
 
   bool get isShuffle => _isShuffle;
   AudioServiceRepeatMode get repeatMode => _repeatMode;
+
+  // Smart Radio Getters
+  bool get isGeneratingRadio => _isGeneratingRadio;
+  bool get autoPlayRadio => _autoPlayRadio;
+  String? get radioSeedArtist => _radioSeedArtist;
+
+  void toggleAutoPlayRadio() {
+    _autoPlayRadio = !_autoPlayRadio;
+    notifyListeners();
+  }
+
+  void _setupAudioHandlerCallbacks() {
+    _audioHandler.onResolveStreamUrl = (MediaItem item) async {
+      final track = _queue.firstWhere(
+        (t) => t.id == item.id,
+        orElse: () => _createTrackFromMediaItem(item),
+      );
+      return await _repository.resolveTrackStreamUrl(track);
+    };
+
+    _audioHandler.onQueueNearEnd = () {
+      if (_autoPlayRadio && !_isGeneratingRadio && _currentTrack != null) {
+        _populateSmartRadio(_currentTrack!, appendOnly: true);
+      }
+    };
+  }
 
   // Sleep Timer Getters
   bool get isSleepTimerActive => _sleepTimer != null && _sleepTimer!.isActive;
@@ -181,17 +217,28 @@ class AudioPlayerProvider extends ChangeNotifier {
   // --- PLAYBACK ACTIONS ---
 
   /// Plays a track, optionally setting up a surrounding playlist queue.
-  Future<void> playTrack(Track track, {List<Track>? playlist, int? initialIndex}) async {
+  /// If [playlist] is null or [startSmartRadio] is true, uses the Instagram/YouTube Music algorithm
+  /// to generate a dynamic, non-duplicate, genre/artist related radio queue.
+  Future<void> playTrack(
+    Track track, {
+    List<Track>? playlist,
+    int? initialIndex,
+    bool startSmartRadio = false,
+  }) async {
     try {
       _isBuffering = true;
       _errorMessage = null;
       _currentTrack = track;
       notifyListeners();
 
-      if (playlist != null && playlist.isNotEmpty) {
+      final bool isExplicitPlaylist = playlist != null && playlist.isNotEmpty && !startSmartRadio;
+
+      if (isExplicitPlaylist) {
         _queue = List.from(playlist);
-      } else if (!_queue.any((t) => t.id == track.id)) {
+        _radioSeedArtist = null;
+      } else {
         _queue = [track];
+        _radioSeedArtist = track.artist;
       }
 
       if (initialIndex != null && initialIndex >= 0 && initialIndex < _queue.length) {
@@ -204,7 +251,7 @@ class AudioPlayerProvider extends ChangeNotifier {
         }
       }
 
-      // Resolve stream URL for current track
+      // Resolve stream URL for current track immediately
       final streamUrl = await _repository.resolveTrackStreamUrl(track);
 
       // Convert full queue to MediaItems
@@ -218,9 +265,64 @@ class AudioPlayerProvider extends ChangeNotifier {
       await _audioHandler.setQueueAndPlay(mediaItems, _currentIndex);
       await _repository.addToRecentlyPlayed(track);
       _recentlyPlayedRepository?.recordTrack(track);
+
+      // If smart radio mode, populate related diverse tracks in the background
+      if (!isExplicitPlaylist) {
+        unawaited(_populateSmartRadio(track));
+      }
     } catch (e) {
       _isBuffering = false;
       _errorMessage = 'Could not play track: $e';
+      notifyListeners();
+    }
+  }
+
+  /// Explicitly plays a track and generates a smart, dynamic radio queue of related artists & genres.
+  Future<void> playWithSmartRadio(Track track) async {
+    await playTrack(track, startSmartRadio: true);
+  }
+
+  /// Manually triggers reshuffling / refreshing the radio recommendations.
+  Future<void> refreshSmartRadio() async {
+    if (_currentTrack == null) return;
+    await _populateSmartRadio(_currentTrack!, replaceUpcoming: true);
+  }
+
+  Future<void> _populateSmartRadio(
+    Track seedTrack, {
+    bool appendOnly = false,
+    bool replaceUpcoming = false,
+  }) async {
+    if (_isGeneratingRadio) return;
+    _isGeneratingRadio = true;
+    notifyListeners();
+
+    try {
+      final existingIds = _queue.map((t) => t.id).toSet();
+      final radioTracks = await _algorithmService.generateRadioQueue(
+        seedTrack,
+        targetCount: 14,
+        excludedTrackIds: existingIds,
+      );
+
+      if (radioTracks.isNotEmpty && _currentTrack?.id == seedTrack.id) {
+        if (replaceUpcoming && _currentIndex >= 0 && _currentIndex < _queue.length) {
+          // Keep history up to current track, replace upcoming
+          _queue = _queue.sublist(0, _currentIndex + 1);
+          _queue.addAll(radioTracks);
+          final mediaItems = _queue.map((t) => t.toMediaItem()).toList();
+          await _audioHandler.updateQueue(mediaItems);
+        } else {
+          _queue.addAll(radioTracks);
+          final mediaItems = radioTracks.map((t) => t.toMediaItem()).toList();
+          await _audioHandler.addQueueItems(mediaItems);
+        }
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('[AudioPlayerProvider] _populateSmartRadio error: $e');
+    } finally {
+      _isGeneratingRadio = false;
       notifyListeners();
     }
   }

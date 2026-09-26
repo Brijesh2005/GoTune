@@ -101,7 +101,11 @@ class TrackCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap ??
             () {
-              playerProvider.playTrack(track, playlist: queue);
+              if (queue != null && queue!.isNotEmpty) {
+                playerProvider.playTrack(track, playlist: queue);
+              } else {
+                playerProvider.playWithSmartRadio(track);
+              }
             },
         onLongPress: () => _showTrackMenu(context),
         borderRadius: BorderRadius.circular(14),
