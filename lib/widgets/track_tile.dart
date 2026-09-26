@@ -133,21 +133,31 @@ class TrackTile extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: track.provider == 'saavn'
                               ? const Color(0xFF00D2C4).withOpacity(0.15)
-                              : AppColors.primary.withOpacity(0.15),
+                              : track.provider == 'youtube'
+                                  ? const Color(0xFFFF2A2A).withOpacity(0.15)
+                                  : AppColors.primary.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(4),
                           border: Border.all(
                             color: track.provider == 'saavn'
                                 ? const Color(0xFF00D2C4).withOpacity(0.3)
-                                : AppColors.primary.withOpacity(0.3),
+                                : track.provider == 'youtube'
+                                    ? const Color(0xFFFF2A2A).withOpacity(0.3)
+                                    : AppColors.primary.withOpacity(0.3),
                             width: 0.8,
                           ),
                         ),
                         child: Text(
-                          track.provider == 'saavn' ? 'Saavn 320k' : 'Audius',
+                          track.provider == 'saavn'
+                              ? 'Saavn 320k'
+                              : track.provider == 'youtube'
+                                  ? 'YouTube'
+                                  : 'Audius',
                           style: TextStyle(
                             color: track.provider == 'saavn'
                                 ? const Color(0xFF00E5D5)
-                                : AppColors.primaryLight,
+                                : track.provider == 'youtube'
+                                    ? const Color(0xFFFF4B4B)
+                                    : AppColors.primaryLight,
                             fontSize: 9.5,
                             fontWeight: FontWeight.w600,
                           ),

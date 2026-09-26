@@ -42,7 +42,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 focusNode: _focusNode,
                 style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
                 decoration: InputDecoration(
-                  hintText: 'Search songs, Bollywood, artists, Phonk...',
+                  hintText: 'Search any song, artist, Adele, Bollywood...',
                   prefixIcon: const Icon(
                     Icons.search_rounded,
                     color: AppColors.primaryLight,
@@ -80,6 +80,14 @@ class _SearchScreenState extends State<SearchScreen> {
                       providerKey: 'all',
                       icon: Icons.all_inclusive_rounded,
                       activeColor: AppColors.primary,
+                      music: musicProvider,
+                    ),
+                    const SizedBox(width: 8),
+                    _buildProviderChip(
+                      label: 'YouTube (Universal)',
+                      providerKey: 'youtube',
+                      icon: Icons.play_circle_filled_rounded,
+                      activeColor: const Color(0xFFFF2A2A),
                       music: musicProvider,
                     ),
                     const SizedBox(width: 8),

@@ -2,11 +2,13 @@ import '../models/track.dart';
 import '../services/audius_api_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/saavn_api_service.dart';
+import '../services/youtube_api_service.dart';
 
-/// Repository that orchestrates data flow between music providers (Audius, JioSaavn) and local storage.
+/// Repository that orchestrates data flow between music providers (Audius, JioSaavn, YouTube) and local storage.
 class TrackRepository {
   final AudiusApiService _audiusService;
   final SaavnApiService _saavnService;
+  final YouTubeApiService _youtubeService;
   final LocalStorageService _storageService;
 
   // In-memory cache to avoid redundant API hits during active session
@@ -15,14 +17,17 @@ class TrackRepository {
   TrackRepository({
     required AudiusApiService apiService,
     SaavnApiService? saavnService,
+    YouTubeApiService? youtubeService,
     required LocalStorageService storageService,
   })  : _audiusService = apiService,
         _saavnService = saavnService ?? SaavnApiService(),
+        _youtubeService = youtubeService ?? YouTubeApiService(),
         _storageService = storageService;
 
   AudiusApiService get apiService => _audiusService;
   AudiusApiService get audiusService => _audiusService;
   SaavnApiService get saavnService => _saavnService;
+  YouTubeApiService get youtubeService => _youtubeService;
   LocalStorageService get storageService => _storageService;
 
   /// Fetches trending tracks, supporting 'all', 'saavn', or 'audius'.
@@ -74,7 +79,7 @@ class TrackRepository {
   }
 
   /// Searches tracks matching [query].
-  /// [provider] can be 'all', 'saavn', or 'audius'.
+  /// [provider] can be 'all', 'saavn', 'youtube', or 'audius'.
   Future<List<Track>> searchTracks(
     String query, {
     int limit = 25,
@@ -82,6 +87,14 @@ class TrackRepository {
   }) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return [];
+
+    if (provider == 'youtube') {
+      final tracks = await _youtubeService.searchTracks(trimmed, limit: limit);
+      for (final track in tracks) {
+        _trackCache[track.id] = track;
+      }
+      return tracks;
+    }
 
     if (provider == 'saavn') {
       final tracks = await _saavnService.searchTracks(trimmed, limit: limit);
@@ -99,23 +112,45 @@ class TrackRepository {
       return tracks;
     }
 
-    // Unified: Query both simultaneously
+    // Unified: Query JioSaavn, YouTube, and Audius simultaneously
     try {
       final results = await Future.wait([
         _saavnService.searchTracks(trimmed, limit: limit).catchError((_) => <Track>[]),
+        _youtubeService.searchTracks(trimmed, limit: limit).catchError((_) => <Track>[]),
         _audiusService.searchTracks(query: trimmed, limit: limit).catchError((_) => <Track>[]),
       ]);
       final saavnTracks = results[0];
-      final audiusTracks = results[1];
+      final youtubeTracks = results[1];
+      final audiusTracks = results[2];
 
-      // Merge results with Saavn leading for Bollywood / mainstream relevance
-      final combined = <Track>[...saavnTracks, ...audiusTracks];
+      final queryLower = trimmed.toLowerCase();
+
+      // Check if YouTube has an exact or primary artist match while Saavn only has covers
+      final saavnHasArtist = saavnTracks.isNotEmpty &&
+          saavnTracks.take(3).any((t) =>
+              queryLower.contains(t.artist.toLowerCase()) ||
+              t.artist.toLowerCase().contains(queryLower));
+
+      final ytHasArtist = youtubeTracks.isNotEmpty &&
+          youtubeTracks.take(3).any((t) =>
+              queryLower.contains(t.artist.toLowerCase()) ||
+              t.artist.toLowerCase().contains(queryLower));
+
+      final List<Track> combined;
+      if (!saavnHasArtist && ytHasArtist) {
+        // YouTube has the official artist match (e.g. Adele's Lovesong), so lead with YouTube!
+        combined = _mergeAndDeduplicate(youtubeTracks, saavnTracks, audiusTracks);
+      } else {
+        // Interleave Saavn and YouTube, providing high-bitrate Saavn along with YouTube universality
+        combined = _mergeAndDeduplicate(saavnTracks, youtubeTracks, audiusTracks);
+      }
+
       for (final track in combined) {
         _trackCache[track.id] = track;
       }
       return combined;
     } catch (_) {
-      final tracks = await _saavnService.searchTracks(trimmed, limit: limit);
+      final tracks = await _youtubeService.searchTracks(trimmed, limit: limit);
       for (final track in tracks) {
         _trackCache[track.id] = track;
       }
@@ -123,10 +158,68 @@ class TrackRepository {
     }
   }
 
+  /// Merges and deduplicates tracks across providers by normalized artist & title.
+  List<Track> _mergeAndDeduplicate(
+    List<Track> primary,
+    List<Track> secondary,
+    List<Track> tertiary,
+  ) {
+    final seen = <String>{};
+    final result = <Track>[];
+
+    String normKey(Track t) {
+      final a = t.artist.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      final title = t.title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      return '$a::$title';
+    }
+
+    final maxLen = primary.length > secondary.length ? primary.length : secondary.length;
+    for (int i = 0; i < maxLen; i++) {
+      if (i < primary.length) {
+        final t = primary[i];
+        final k = normKey(t);
+        if (k.length > 3 && seen.add(k)) {
+          result.add(t);
+        } else if (k.length <= 3) {
+          result.add(t);
+        }
+      }
+      if (i < secondary.length) {
+        final t = secondary[i];
+        final k = normKey(t);
+        if (k.length > 3 && seen.add(k)) {
+          result.add(t);
+        } else if (k.length <= 3) {
+          result.add(t);
+        }
+      }
+    }
+
+    for (final t in tertiary) {
+      final k = normKey(t);
+      if (k.length > 3 && seen.add(k)) {
+        result.add(t);
+      } else if (k.length <= 3) {
+        result.add(t);
+      }
+    }
+
+    return result;
+  }
+
   /// Retrieves track by ID from cache or API.
   Future<Track> getTrackById(String trackId) async {
     if (_trackCache.containsKey(trackId)) {
       return _trackCache[trackId]!;
+    }
+
+    // Try YouTube if ID starts with yt_
+    if (trackId.startsWith('yt_')) {
+      final ytTrack = await _youtubeService.getTrackById(trackId);
+      if (ytTrack != null) {
+        _trackCache[ytTrack.id] = ytTrack;
+        return ytTrack;
+      }
     }
 
     // Try Saavn first
@@ -136,20 +229,40 @@ class TrackRepository {
       return saavnTrack;
     }
 
-    final track = await _audiusService.getTrackById(trackId);
-    _trackCache[track.id] = track;
-    return track;
+    // Try Audius
+    try {
+      final track = await _audiusService.getTrackById(trackId);
+      _trackCache[track.id] = track;
+      return track;
+    } catch (_) {}
+
+    // Fallback to YouTube
+    final ytTrack = await _youtubeService.getTrackById(trackId);
+    if (ytTrack != null) {
+      _trackCache[ytTrack.id] = ytTrack;
+      return ytTrack;
+    }
+
+    throw Exception('Track not found: $trackId');
   }
 
   /// Resolves the playable streaming URL for a track.
   Future<String> resolveTrackStreamUrl(Track track) async {
-    // 1. If direct stream URL already exists, return immediately
+    // 1. If provider is YouTube, resolve fresh stream URL from YouTube
+    if (track.provider == 'youtube' || track.id.startsWith('yt_')) {
+      final ytUrl = await _youtubeService.resolveStreamUrl(track.id);
+      if (ytUrl != null && ytUrl.isNotEmpty) {
+        return ytUrl;
+      }
+    }
+
+    // 2. If direct stream URL already exists, return immediately
     if (track.streamInfo.directStreamUrl != null &&
         track.streamInfo.directStreamUrl!.isNotEmpty) {
       return track.streamInfo.directStreamUrl!;
     }
 
-    // 2. If provider is Saavn, re-fetch and decrypt
+    // 3. If provider is Saavn, re-fetch and decrypt
     if (track.provider == 'saavn') {
       final saavnTrack = await _saavnService.getTrackById(track.id);
       if (saavnTrack?.streamInfo.directStreamUrl != null &&
@@ -158,13 +271,26 @@ class TrackRepository {
       }
     }
 
-    // 3. Fallback to Audius redirect
-    final resolvedUrl = await _audiusService.resolveStreamUrl(track.id);
-    if (resolvedUrl.isNotEmpty) {
-      return resolvedUrl;
+    // 4. Fallback to Audius redirect
+    if (track.provider == 'audius') {
+      final resolvedUrl = await _audiusService.resolveStreamUrl(track.id);
+      if (resolvedUrl.isNotEmpty) {
+        return resolvedUrl;
+      }
     }
 
-    // Fallback to canonical URL
+    // 5. Automatic YouTube Audio Fallback:
+    // If a track from Saavn or Audius has no playable stream, automatically
+    // find the matching audio on YouTube and resolve its stream!
+    final fallbackUrl = await _youtubeService.resolveFallbackStreamUrl(
+      title: track.title,
+      artist: track.artist,
+    );
+    if (fallbackUrl != null && fallbackUrl.isNotEmpty) {
+      return fallbackUrl;
+    }
+
+    // 6. Fallback to canonical URL
     return track.streamInfo.getEffectiveStreamUrl(
       trackId: track.id,
       baseUrl: _audiusService.baseUrl,

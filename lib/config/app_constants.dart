@@ -1,8 +1,8 @@
 /// Application-wide constants and persistent storage keys.
 class AppConstants {
-  static const String appName = 'Gojo Music';
+  static const String appName = 'GoTune';
   static const String appVersion = '1.0.0';
-  static const String appSubtitle = 'Personal Audius Music Experience';
+  static const String appSubtitle = 'Universal Modern Music Experience';
 
   // Storage keys for SharedPreferences
   static const String keyAppName = 'gotune_api_app_name';

@@ -1,4 +1,5 @@
 import 'package:audio_service/audio_service.dart';
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../utils/duration_formatter.dart';
 import '../utils/html_unescape.dart';
 import 'track_stream_info.dart';
@@ -67,7 +68,11 @@ class Track {
             : null);
     return MediaItem(
       id: id,
-      album: genre.isNotEmpty ? genre : (provider == 'saavn' ? 'JioSaavn' : 'Audius'),
+      album: genre.isNotEmpty
+          ? genre
+          : (provider == 'saavn'
+              ? 'JioSaavn'
+              : (provider == 'youtube' ? 'YouTube' : 'Audius')),
       title: title,
       artist: artist,
       duration: Duration(seconds: durationSeconds),
@@ -201,6 +206,69 @@ class Track {
         isStreamable: decryptedStreamUrl != null && decryptedStreamUrl.isNotEmpty,
       ),
       releaseDate: releaseDate,
+    );
+  }
+
+  /// Creates a Track instance from a YouTube video result.
+  factory Track.fromYoutubeVideo(
+    Video video, {
+    String? resolvedStreamUrl,
+  }) {
+    final rawTitle = HtmlUnescape.unescape(video.title);
+    final rawAuthor = HtmlUnescape.unescape(video.author);
+
+    // Clean author by stripping ' - Topic' suffix
+    final cleanAuthor = rawAuthor
+        .replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
+        .trim();
+    String artist = cleanAuthor;
+    String title = rawTitle;
+
+    // Many music tracks on YouTube follow "Artist - Title" format
+    if (rawTitle.contains(' - ')) {
+      final parts = rawTitle.split(' - ');
+      final possibleArtist = parts.first.trim();
+      final possibleTitle = parts.sublist(1).join(' - ').trim();
+      if (possibleArtist.isNotEmpty && possibleTitle.isNotEmpty) {
+        artist = possibleArtist;
+        title = possibleTitle;
+      }
+    }
+
+    // Strip common audio/video clutter tags from title
+    title = title
+        .replaceAll(
+          RegExp(
+            r'\s*[\(\[](official\s*(music\s*)?video|official\s*audio|official\s*lyric\s*video|lyric\s*video|official|audio|video|lyrics|hd|4k|hq|visualizer)[\)\]]',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+
+    if (title.isEmpty) title = rawTitle;
+    if (artist.isEmpty) artist = 'Unknown Artist';
+
+    final videoId = video.id.value;
+    final art150 = video.thumbnails.lowResUrl;
+    final art480 = video.thumbnails.mediumResUrl;
+    final art1000 = video.thumbnails.highResUrl;
+
+    return Track(
+      id: 'yt_$videoId',
+      title: title,
+      artist: artist,
+      artworkUrl150: art150,
+      artworkUrl480: art480,
+      artworkUrl1000: art1000,
+      durationSeconds: video.duration?.inSeconds ?? 0,
+      genre: 'Universal',
+      provider: 'youtube',
+      streamInfo: TrackStreamInfo(
+        directStreamUrl: resolvedStreamUrl,
+        isStreamable: true,
+      ),
+      releaseDate: video.uploadDate,
     );
   }
 

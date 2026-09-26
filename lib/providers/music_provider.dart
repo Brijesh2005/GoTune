@@ -43,7 +43,7 @@ class MusicProvider extends ChangeNotifier {
   LoadState _searchState = LoadState.initial;
   String _searchError = '';
   bool _hasSearched = false;
-  String _searchProvider = 'all'; // 'all', 'saavn', 'audius'
+  String _searchProvider = 'all'; // 'all', 'youtube', 'saavn', 'audius'
 
   String get searchQuery => _searchQuery;
   List<Track> get searchResults => _searchResults;

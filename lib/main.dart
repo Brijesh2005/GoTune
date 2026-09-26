@@ -7,6 +7,7 @@ import 'repositories/recently_played_repository.dart';
 import 'repositories/track_repository.dart';
 import 'services/audius_api_service.dart';
 import 'services/saavn_api_service.dart';
+import 'services/youtube_api_service.dart';
 import 'services/audio_handler.dart';
 import 'services/local_storage_service.dart';
 import 'theme/app_colors.dart';
@@ -39,11 +40,13 @@ void main() async {
     baseUrl: storageService.getCustomBaseUrl(),
   );
   final saavnService = SaavnApiService();
+  final youtubeService = YouTubeApiService();
 
-  // Initialize central catalog repository with dual providers (Audius + JioSaavn)
+  // Initialize central catalog repository with unified providers (JioSaavn + YouTube + Audius)
   final repository = TrackRepository(
     apiService: apiService,
     saavnService: saavnService,
+    youtubeService: youtubeService,
     storageService: storageService,
   );
 

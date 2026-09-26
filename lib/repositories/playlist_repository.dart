@@ -1,20 +1,28 @@
 import '../models/playlist.dart';
 import '../models/track.dart';
+import '../services/builtin_playlists_service.dart';
 import '../services/local_storage_service.dart';
 
-/// Repository managing custom user playlists and track associations.
+/// Repository managing both curated built-in playlists and custom user playlists.
 class PlaylistRepository {
   final LocalStorageService _storage;
 
   PlaylistRepository(this._storage);
 
+  /// Returns user-created playlists from local storage.
   List<Playlist> getPlaylists() => _storage.getPlaylists();
+
+  /// Returns curated built-in playlists ready to stream.
+  List<Playlist> getBuiltinPlaylists() => BuiltinPlaylistsService.getBuiltinPlaylists();
+
+  /// Returns the featured daily playlist for the home screen banner.
+  Playlist getFeaturedPlaylist() => BuiltinPlaylistsService.getFeaturedPlaylist();
 
   Playlist? getPlaylistById(String id) {
     try {
       return _storage.getPlaylists().firstWhere((p) => p.id == id);
     } catch (_) {
-      return null;
+      return BuiltinPlaylistsService.getPlaylistById(id);
     }
   }
 

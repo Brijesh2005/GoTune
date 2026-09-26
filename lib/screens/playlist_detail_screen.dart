@@ -104,40 +104,57 @@ class PlaylistDetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(playlist.name),
         actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert_rounded),
-            color: AppColors.surfaceElevated,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            onSelected: (val) {
-              if (val == 'rename') {
-                _showRenameDialog(context, library, playlist);
-              } else if (val == 'delete') {
-                _showDeleteDialog(context, library, playlist);
-              }
-            },
-            itemBuilder: (ctx) => const [
-              PopupMenuItem(
-                value: 'rename',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit_rounded, color: AppColors.textPrimary, size: 20),
-                    SizedBox(width: 12),
-                    Text('Rename', style: TextStyle(color: AppColors.textPrimary, fontSize: 13.5)),
-                  ],
+          if (playlist.id.startsWith('builtin_'))
+            IconButton(
+              icon: const Icon(Icons.bookmark_add_rounded, color: AppColors.primaryLight),
+              tooltip: 'Save to My Library',
+              onPressed: () async {
+                final created = await library.createPlaylist(playlist.name, description: playlist.description);
+                for (final t in playlist.tracks) {
+                  await library.addTrackToPlaylist(created.id, t);
+                }
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Saved "${playlist.name}" to your library!')),
+                  );
+                }
+              },
+            )
+          else
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded),
+              color: AppColors.surfaceElevated,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              onSelected: (val) {
+                if (val == 'rename') {
+                  _showRenameDialog(context, library, playlist);
+                } else if (val == 'delete') {
+                  _showDeleteDialog(context, library, playlist);
+                }
+              },
+              itemBuilder: (ctx) => const [
+                PopupMenuItem(
+                  value: 'rename',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit_rounded, color: AppColors.textPrimary, size: 20),
+                      SizedBox(width: 12),
+                      Text('Rename', style: TextStyle(color: AppColors.textPrimary, fontSize: 13.5)),
+                    ],
+                  ),
                 ),
-              ),
-              PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 20),
-                    SizedBox(width: 12),
-                    Text('Delete Playlist', style: TextStyle(color: AppColors.error, fontSize: 13.5)),
-                  ],
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 20),
+                      SizedBox(width: 12),
+                      Text('Delete Playlist', style: TextStyle(color: AppColors.error, fontSize: 13.5)),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
       body: CustomScrollView(

@@ -5,7 +5,8 @@ import '../screens/now_playing_screen.dart';
 import '../theme/app_colors.dart';
 import 'network_artwork.dart';
 
-/// Floating mini player widget positioned above the bottom navigation bar.
+/// Floating mini player widget positioned above the bottom navigation bar,
+/// styled with the Pulse dynamic dark aesthetic.
 class MiniPlayer extends StatelessWidget {
   const MiniPlayer({super.key});
 
@@ -27,20 +28,18 @@ class MiniPlayer extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8),
       child: GestureDetector(
-        onTap: () {
-          NowPlayingScreen.show(context);
-        },
+        onTap: () => NowPlayingScreen.show(context),
         child: Container(
-          height: 64,
+          height: 62,
           decoration: BoxDecoration(
-            gradient: AppColors.miniPlayerGradient,
+            color: AppColors.surface,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: AppColors.border, width: 1),
-            boxShadow: [
+            boxShadow: const [
               BoxShadow(
-                color: Colors.black.withOpacity(0.4),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
+                color: Color(0x66000000),
+                blurRadius: 18,
+                offset: Offset(0, 6),
               ),
             ],
           ),
@@ -57,21 +56,39 @@ class MiniPlayer extends StatelessWidget {
                     value: progress,
                     backgroundColor: Colors.transparent,
                     valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
-                    minHeight: 2.5,
+                    minHeight: 2,
                   ),
                 ),
 
                 // Player contents
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   child: Row(
                     children: [
-                      // Artwork
-                      NetworkArtwork(
-                        imageUrl: track.thumbnailArtworkUrl,
-                        width: 44,
-                        height: 44,
-                        borderRadius: 10,
+                      // Thumbnail Art Tile
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: track.thumbnailArtworkUrl.isNotEmpty
+                            ? NetworkArtwork(
+                                imageUrl: track.thumbnailArtworkUrl,
+                                width: 44,
+                                height: 44,
+                                borderRadius: 12,
+                              )
+                            : Container(
+                                width: 44,
+                                height: 44,
+                                decoration: const BoxDecoration(
+                                  gradient: AppColors.artTileGradient,
+                                ),
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.music_note_rounded,
+                                    color: AppColors.primaryLight,
+                                    size: 22,
+                                  ),
+                                ),
+                              ),
                       ),
                       const SizedBox(width: 12),
 
@@ -87,7 +104,7 @@ class MiniPlayer extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: AppColors.textPrimary,
-                                fontSize: 13.5,
+                                fontSize: 14,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -105,57 +122,36 @@ class MiniPlayer extends StatelessWidget {
                         ),
                       ),
 
-                      // Next button
-                      IconButton(
-                        icon: const Icon(
-                          Icons.skip_next_rounded,
-                          color: AppColors.textPrimary,
-                          size: 24,
+                      // Play / Pause button matching HTML prototype
+                      GestureDetector(
+                        onTap: () => playerProvider.togglePlayPause(),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF282E36),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                            child: playerProvider.isBuffering
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Icon(
+                                    playerProvider.isPlaying
+                                        ? Icons.pause_rounded
+                                        : Icons.play_arrow_rounded,
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                          ),
                         ),
-                        onPressed: () {
-                          playerProvider.next();
-                        },
-                        splashRadius: 20,
                       ),
-
-                      // Play / Pause button
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primary.withOpacity(0.35),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: playerProvider.isBuffering
-                            ? const Padding(
-                                padding: EdgeInsets.all(11.0),
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : IconButton(
-                                icon: Icon(
-                                  playerProvider.isPlaying
-                                      ? Icons.pause_rounded
-                                      : Icons.play_arrow_rounded,
-                                  color: Colors.white,
-                                  size: 24,
-                                ),
-                                onPressed: () {
-                                  playerProvider.togglePlayPause();
-                                },
-                                padding: EdgeInsets.zero,
-                              ),
-                      ),
-                      const SizedBox(width: 4),
                     ],
                   ),
                 ),

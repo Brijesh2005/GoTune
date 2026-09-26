@@ -84,12 +84,11 @@ class LibraryProvider extends ChangeNotifier {
   // PLAYLISTS
   // ==========================================
 
+  List<Playlist> get builtinPlaylists => _playlistRepo.getBuiltinPlaylists();
+  Playlist get featuredPlaylist => _playlistRepo.getFeaturedPlaylist();
+
   Playlist? getPlaylist(String id) {
-    try {
-      return _playlists.firstWhere((p) => p.id == id);
-    } catch (_) {
-      return null;
-    }
+    return _playlistRepo.getPlaylistById(id);
   }
 
   Future<Playlist> createPlaylist(String name, {String description = ''}) async {

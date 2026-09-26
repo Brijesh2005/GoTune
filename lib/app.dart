@@ -78,7 +78,7 @@ class _GoTuneAppState extends State<GoTuneApp> with WidgetsBindingObserver {
         ),
       ],
       child: MaterialApp(
-        title: 'Gojo Music',
+        title: 'GoTune',
         debugShowCheckedModeBanner: false,
         theme: GoTuneTheme.darkTheme,
         darkTheme: GoTuneTheme.darkTheme,

@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/playlist.dart';
+import '../models/track.dart';
 import '../providers/audio_player_provider.dart';
 import '../providers/library_provider.dart';
+import '../screens/now_playing_screen.dart';
+import '../screens/playlist_detail_screen.dart';
+import '../services/builtin_playlists_service.dart';
 import '../theme/app_colors.dart';
-import '../widgets/network_artwork.dart';
-import '../widgets/track_tile.dart';
-import 'playlist_detail_screen.dart';
 
-/// Complete Library Screen displaying Favorites, Custom Playlists,
-/// and Recently Played listening history with persistent storage.
+/// Redesigned Library Screen matching the Pulse aesthetic,
+/// featuring tabbed navigation for Playlists (including built-ins), Albums, and Artists.
 class LibraryScreen extends StatefulWidget {
   final VoidCallback onExploreTapped;
 
@@ -43,8 +44,15 @@ class _LibraryScreenState extends State<LibraryScreen>
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surfaceElevated,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('New Playlist', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'New Playlist',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -81,34 +89,11 @@ class _LibraryScreenState extends State<LibraryScreen>
                 Navigator.pop(ctx);
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
             child: const Text('Create', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showClearHistoryDialog(BuildContext context, LibraryProvider library) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surfaceElevated,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Clear Listening History', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
-        content: const Text('Are you sure you want to clear your recently played history?', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              library.clearRecentlyPlayed();
-              Navigator.pop(ctx);
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            child: const Text('Clear', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -118,88 +103,68 @@ class _LibraryScreenState extends State<LibraryScreen>
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryProvider>();
-    final player = context.read<AudioPlayerProvider>();
+    final audioPlayer = context.read<AudioPlayerProvider>();
 
     return Scaffold(
+      backgroundColor: AppColors.background,
       body: SafeArea(
         bottom: false,
         child: NestedScrollView(
-          headerSliverBuilder: (context, innerBoxIsScrolled) {
-            return [
-              // Top Title
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Your Library',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -0.8,
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceElevated,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Text(
-                          '${library.favorites.length} Liked • ${library.playlists.length} Playlists',
-                          style: const TextStyle(
-                            color: AppColors.primaryLight,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+          headerSliverBuilder: (context, innerBoxIsScrolled) => [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 20, 18, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Your library',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 30,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.6,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Tab Bar (Favorites, Playlists, Recently Played)
-              SliverToBoxAdapter(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceElevated,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: TabBar(
-                    controller: _tabController,
-                    indicator: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(12),
+                        IconButton(
+                          icon: const Icon(Icons.add_rounded, color: AppColors.primaryLight, size: 28),
+                          tooltip: 'Create Playlist',
+                          onPressed: () => _showCreatePlaylistDialog(context, library),
+                        ),
+                      ],
                     ),
-                    indicatorSize: TabBarIndicatorSize.tab,
-                    dividerColor: Colors.transparent,
-                    labelColor: Colors.white,
-                    unselectedLabelColor: AppColors.textMuted,
-                    labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                    unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.normal),
-                    tabs: const [
-                      Tab(text: 'Favorites'),
-                      Tab(text: 'Playlists'),
-                      Tab(text: 'Recently Played'),
-                    ],
-                  ),
+                    const SizedBox(height: 14),
+
+                    // Custom Tab Bar matching the Pulse design
+                    TabBar(
+                      controller: _tabController,
+                      indicatorColor: AppColors.primary,
+                      indicatorWeight: 2.5,
+                      labelColor: Colors.white,
+                      unselectedLabelColor: AppColors.textSecondary,
+                      labelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                      unselectedLabelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                      dividerColor: const Color(0x1AFFFFFF),
+                      tabs: const [
+                        Tab(text: 'Playlists'),
+                        Tab(text: 'Albums'),
+                        Tab(text: 'Artists'),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-            ];
-          },
+            ),
+          ],
           body: TabBarView(
             controller: _tabController,
             children: [
-              _buildFavoritesTab(library, player),
-              _buildPlaylistsTab(library),
-              _buildRecentlyPlayedTab(library, player),
+              _buildPlaylistsTab(context, library, audioPlayer),
+              _buildAlbumsTab(context, library, audioPlayer),
+              _buildArtistsTab(context, library, audioPlayer),
             ],
           ),
         ),
@@ -208,317 +173,370 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 
   // ==========================================
-  // TAB 1: FAVORITES
+  // PLAYLISTS TAB
   // ==========================================
-
-  Widget _buildFavoritesTab(LibraryProvider library, AudioPlayerProvider player) {
+  Widget _buildPlaylistsTab(
+    BuildContext context,
+    LibraryProvider library,
+    AudioPlayerProvider audioPlayer,
+  ) {
     final favorites = library.favorites;
-
-    if (favorites.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(22),
-                decoration: const BoxDecoration(
-                  color: AppColors.surfaceElevated,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.favorite_border_rounded, color: AppColors.accentPink, size: 42),
-              ),
-              const SizedBox(height: 18),
-              const Text(
-                'No favorite tracks yet',
-                style: TextStyle(color: AppColors.textPrimary, fontSize: 17, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Tap the heart icon on any song to save it here for fast offline access and replay.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textMuted, fontSize: 13, height: 1.4),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
-                onPressed: widget.onExploreTapped,
-                icon: const Icon(Icons.explore_rounded, size: 18),
-                label: const Text('Explore Music'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    final userPlaylists = library.playlists;
+    final builtinPlaylists = library.builtinPlaylists;
 
     return ListView(
-      padding: const EdgeInsets.only(top: 12, bottom: 120),
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 120),
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${favorites.length} Songs Saved',
-                style: const TextStyle(color: AppColors.textMuted, fontSize: 12.5, fontWeight: FontWeight.w600),
-              ),
-              ElevatedButton.icon(
-                onPressed: () {
-                  player.playTrack(favorites.first, playlist: favorites, initialIndex: 0);
-                },
-                icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                label: const Text('Play All'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  minimumSize: Size.zero,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-            ],
+        // 1. Liked Songs tile matching prototype
+        _buildSurfaceRow(
+          iconWidget: Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Center(
+              child: Icon(Icons.favorite_rounded, color: Colors.white, size: 24),
+            ),
           ),
+          title: 'Liked Songs',
+          subtitle: '${favorites.length} songs',
+          trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+          onTap: () {
+            if (favorites.isNotEmpty) {
+              audioPlayer.playTrack(favorites.first, playlist: favorites);
+              NowPlayingScreen.show(context);
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('No liked songs yet! Tap the heart on any song.')),
+              );
+            }
+          },
         ),
-        ...favorites.map((track) {
-          return TrackTile(
-            track: track,
-            queue: favorites,
-          );
-        }),
-      ],
-    );
-  }
+        const SizedBox(height: 18),
 
-  // ==========================================
-  // TAB 2: PLAYLISTS
-  // ==========================================
-
-  Widget _buildPlaylistsTab(LibraryProvider library) {
-    final playlists = library.playlists;
-
-    return ListView(
-      padding: const EdgeInsets.only(top: 12, bottom: 120),
-      children: [
-        // "New Playlist" create button tile
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          child: InkWell(
-            onTap: () => _showCreatePlaylistDialog(context, library),
-            borderRadius: BorderRadius.circular(14),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceCard,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: const Row(
-                children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: AppColors.primary,
-                    child: Icon(Icons.add_rounded, color: Colors.white, size: 24),
-                  ),
-                  SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Create Playlist', style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.bold)),
-                        SizedBox(height: 2),
-                        Text('Build your personal music collection', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.arrow_forward_ios_rounded, color: AppColors.textMuted, size: 14),
-                ],
-              ),
+        // 2. Built-in Curated Playlists Section
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'BUILT-IN PLAYLISTS',
+            style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.1,
             ),
           ),
         ),
-
-        if (playlists.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(40),
-            child: Center(
-              child: Column(
+        ...builtinPlaylists.map((playlist) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: _buildSurfaceRow(
+              iconWidget: Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  gradient: AppColors.artTileGradient,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Center(
+                  child: Icon(Icons.waves_rounded, color: AppColors.primaryLight, size: 24),
+                ),
+              ),
+              title: playlist.name,
+              subtitle: 'Curated · ${playlist.tracks.length} songs',
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.queue_music_rounded, color: AppColors.textMuted, size: 40),
-                  SizedBox(height: 12),
-                  Text('No custom playlists yet', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
-                  SizedBox(height: 4),
-                  Text('Tap "Create Playlist" above to start curating songs.', style: TextStyle(color: AppColors.textMuted, fontSize: 12.5)),
+                  IconButton(
+                    icon: const Icon(Icons.play_circle_fill_rounded, color: AppColors.primary, size: 28),
+                    onPressed: () {
+                      if (playlist.tracks.isNotEmpty) {
+                        audioPlayer.playTrack(playlist.tracks.first, playlist: playlist.tracks);
+                        NowPlayingScreen.show(context);
+                      }
+                    },
+                  ),
+                  const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
                 ],
+              ),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
+                  ),
+                );
+              },
+            ),
+          );
+        }),
+        const SizedBox(height: 18),
+
+        // 3. User Custom Playlists
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(left: 4),
+              child: Text(
+                'MY PLAYLISTS',
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.1,
+                ),
+              ),
+            ),
+            GestureDetector(
+              onTap: () => _showCreatePlaylistDialog(context, library),
+              child: const Text(
+                '+ New Playlist',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        if (userPlaylists.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0x1AFFFFFF)),
+            ),
+            child: const Center(
+              child: Text(
+                'No custom playlists yet. Tap + New Playlist to make one!',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
               ),
             ),
           )
         else
-          ...playlists.map((playlist) => _buildPlaylistTile(library, playlist)),
+          ...userPlaylists.map((playlist) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: _buildSurfaceRow(
+                iconWidget: Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceElevated,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.queue_music_rounded, color: AppColors.textPrimary, size: 24),
+                  ),
+                ),
+                title: playlist.name,
+                subtitle: '${playlist.tracks.length} songs',
+                trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
+                    ),
+                  );
+                },
+              ),
+            );
+          }),
       ],
     );
   }
 
-  Widget _buildPlaylistTile(LibraryProvider library, Playlist playlist) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border.withOpacity(0.4)),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-        leading: playlist.coverArtworkUrl.isNotEmpty
-            ? NetworkArtwork(imageUrl: playlist.coverArtworkUrl, width: 48, height: 48, borderRadius: 10)
-            : Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceElevated,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: const Icon(Icons.queue_music_rounded, color: AppColors.primaryLight, size: 24),
-              ),
-        title: Text(
-          playlist.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
-        ),
-        subtitle: Text(
-          '${playlist.trackCount} track${playlist.trackCount == 1 ? '' : 's'} • ${playlist.formattedTotalDuration}',
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-        ),
-        trailing: const Icon(Icons.arrow_forward_ios_rounded, color: AppColors.textMuted, size: 14),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (ctx) => PlaylistDetailScreen(playlistId: playlist.id),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   // ==========================================
-  // TAB 3: RECENTLY PLAYED
+  // ALBUMS TAB
   // ==========================================
+  Widget _buildAlbumsTab(
+    BuildContext context,
+    LibraryProvider library,
+    AudioPlayerProvider audioPlayer,
+  ) {
+    // Collect distinct albums from recents & favorites
+    final allTracks = <Track>[
+      ...library.favorites,
+      ...library.recentlyPlayed.map((r) => r.track),
+    ];
+    final albums = <String, List<Track>>{};
+    for (final t in allTracks) {
+      if (t.genre.isNotEmpty) {
+        albums.putIfAbsent(t.genre, () => []).add(t);
+      }
+    }
 
-  Widget _buildRecentlyPlayedTab(LibraryProvider library, AudioPlayerProvider player) {
-    final recentItems = library.recentlyPlayed;
-
-    if (recentItems.isEmpty) {
+    if (albums.isEmpty) {
       return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.history_rounded, color: AppColors.textMuted, size: 40),
-              SizedBox(height: 14),
-              Text(
-                'No listening history yet',
-                style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Tracks you stream will automatically appear here with exact playback timestamps.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textMuted, fontSize: 12.5),
-              ),
-            ],
-          ),
+        child: Text(
+          'Play or like tracks to see albums here.',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
         ),
       );
     }
 
-    final recentTracks = recentItems.map((i) => i.track).toList();
-
     return ListView(
-      padding: const EdgeInsets.only(top: 12, bottom: 120),
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${recentItems.length} Tracks Listened',
-                style: const TextStyle(color: AppColors.textMuted, fontSize: 12.5, fontWeight: FontWeight.w600),
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 120),
+      children: albums.entries.map((entry) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: _buildSurfaceRow(
+            iconWidget: Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                gradient: AppColors.artTileGradient,
+                borderRadius: BorderRadius.circular(14),
               ),
-              TextButton.icon(
-                onPressed: () => _showClearHistoryDialog(context, library),
-                icon: const Icon(Icons.delete_sweep_rounded, color: AppColors.error, size: 18),
-                label: const Text(
-                  'Clear History',
-                  style: TextStyle(color: AppColors.error, fontSize: 12.5),
-                ),
-              ),
-            ],
-          ),
-        ),
-        ...recentItems.map((item) {
-          return InkWell(
-            onTap: () {
-              player.playTrack(item.track, playlist: recentTracks);
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Row(
-                children: [
-                  NetworkArtwork(imageUrl: item.track.thumbnailArtworkUrl, width: 48, height: 48, borderRadius: 10),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.track.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                item.track.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            const Text('•', style: TextStyle(color: AppColors.textMuted, fontSize: 10)),
-                            const SizedBox(width: 6),
-                            Text(
-                              item.relativeTime,
-                              style: const TextStyle(color: AppColors.primaryLight, fontSize: 11, fontWeight: FontWeight.w500),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  Text(item.track.formattedDuration, style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                ],
+              child: const Center(
+                child: Icon(Icons.album_rounded, color: AppColors.primaryLight, size: 24),
               ),
             ),
-          );
-        }),
-      ],
+            title: entry.key,
+            subtitle: '${entry.value.first.artist} · Collection (${entry.value.length} tracks)',
+            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+            onTap: () {
+              audioPlayer.playTrack(entry.value.first, playlist: entry.value);
+              NowPlayingScreen.show(context);
+            },
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // ==========================================
+  // ARTISTS TAB
+  // ==========================================
+  Widget _buildArtistsTab(
+    BuildContext context,
+    LibraryProvider library,
+    AudioPlayerProvider audioPlayer,
+  ) {
+    final allTracks = <Track>[
+      ...library.favorites,
+      ...library.recentlyPlayed.map((r) => r.track),
+    ];
+    final artists = <String, List<Track>>{};
+    for (final t in allTracks) {
+      if (t.artist.isNotEmpty && t.artist != 'Unknown Artist') {
+        artists.putIfAbsent(t.artist, () => []).add(t);
+      }
+    }
+
+    if (artists.isEmpty) {
+      return const Center(
+        child: Text(
+          'Play or like tracks to see artists here.',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 120),
+      children: artists.entries.map((entry) {
+        final initial = entry.key.isNotEmpty ? entry.key[0].toUpperCase() : 'A';
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: _buildSurfaceRow(
+            iconWidget: Container(
+              width: 52,
+              height: 52,
+              decoration: const BoxDecoration(
+                color: Color(0xFF27313C),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  initial,
+                  style: const TextStyle(
+                    color: AppColors.primaryLight,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            title: entry.key,
+            subtitle: 'Artist · ${entry.value.length} songs in library',
+            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+            onTap: () {
+              audioPlayer.playTrack(entry.value.first, playlist: entry.value);
+              NowPlayingScreen.show(context);
+            },
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildSurfaceRow({
+    required Widget iconWidget,
+    required String title,
+    required String subtitle,
+    required Widget trailing,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0x14FFFFFF), width: 1),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                iconWidget,
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                trailing,
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
