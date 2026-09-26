@@ -59,7 +59,7 @@ A personal, modern dark music streaming application built with **Flutter**, feat
    ```
    The APK will be generated at `build/app/outputs/flutter-apk/app-release.apk`.
 
----
+----
 
 ## 🛠️ Tech Stack & Architecture
 
