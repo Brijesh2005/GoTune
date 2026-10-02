@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import 'youtube_player_channel.dart';
 import 'youtube_player_event.dart';
@@ -53,7 +55,7 @@ class _YouTubePlayerWidgetState extends State<YouTubePlayerWidget>
 
   /// Upper bound on waiting for the IFrame API, so a blocked or slow script
   /// load degrades into a reported error instead of a hung command.
-  static const Duration _startupTimeout = Duration(seconds: 15);
+  static const Duration _startupTimeout = Duration(seconds: 4);
 
   @override
   bool get isReady => _apiReady;
@@ -129,50 +131,41 @@ class _YouTubePlayerWidgetState extends State<YouTubePlayerWidget>
     _readyCompleter = Completer<void>();
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent('Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36')
       ..setBackgroundColor(Colors.black)
       ..setNavigationDelegate(
         NavigationDelegate(
-          // Everything the player needs is same-origin or YouTube itself;
-          // leaving the origin would destroy playback.
           onNavigationRequest: (request) {
-            // Everything the player needs is the local asset host or
-            // YouTube/Google itself; leaving that origin would destroy
-            // playback.
             final uri = Uri.tryParse(request.url);
             if (uri == null) return NavigationDecision.prevent;
 
             final host = uri.host.toLowerCase();
-            // Suffix (not substring) matching, so a look-alike host such as
-            // "evil-youtube.com" cannot satisfy the allowlist.
             bool isHostOrSubdomain(String domain) {
               return host == domain || host.endsWith('.$domain');
             }
 
             final allowed = uri.scheme == 'file' ||
                 uri.scheme == 'data' ||
+                uri.scheme == 'about' ||
                 host.isEmpty ||
+                isHostOrSubdomain('com.gotune.gotune') ||
                 isHostOrSubdomain('youtube.com') ||
                 isHostOrSubdomain('youtube-nocookie.com') ||
+                isHostOrSubdomain('googlevideo.com') ||
+                isHostOrSubdomain('googleapis.com') ||
                 isHostOrSubdomain('ytimg.com') ||
                 isHostOrSubdomain('ggpht.com') ||
                 isHostOrSubdomain('google.com') ||
                 isHostOrSubdomain('googleusercontent.com') ||
                 isHostOrSubdomain('gstatic.com') ||
+                isHostOrSubdomain('doubleclick.net') ||
                 isHostOrSubdomain('localhost');
             return allowed
                 ? NavigationDecision.navigate
                 : NavigationDecision.prevent;
           },
           onWebResourceError: (error) {
-            _emit(
-              YouTubePlayerEvent(
-                type: YouTubePlayerEventType.error,
-                errorCode: -1,
-                message:
-                    'The embedded player could not load (${error.description}).',
-                videoId: _currentVideoId,
-              ),
-            );
+            debugPrint('[YouTubePlayerWidget] WebResourceError: ${error.description} (code: ${error.errorCode})');
           },
         ),
       )
@@ -181,11 +174,23 @@ class _YouTubePlayerWidgetState extends State<YouTubePlayerWidget>
         onMessageReceived: (message) => _onBridgeMessage(message.message),
       );
 
+    // Permit media autoplay on Android WebView without requiring prior DOM touch
+    if (controller.platform is AndroidWebViewController) {
+      final androidController = controller.platform as AndroidWebViewController;
+      androidController.setMediaPlaybackRequiresUserGesture(false);
+    }
+
     // Assign before the first rebuild so `build` can render the real engine.
     _webViewController = controller;
     if (mounted) setState(() {});
 
-    await controller.loadFlutterAsset(YouTubePlayerWidget.playerAsset);
+    try {
+      final html = await rootBundle.loadString(YouTubePlayerWidget.playerAsset);
+      await controller.loadHtmlString(html, baseUrl: 'https://com.gotune.gotune');
+    } catch (e) {
+      debugPrint('[YouTubePlayerWidget] loadHtmlString fallback: $e');
+      await controller.loadFlutterAsset(YouTubePlayerWidget.playerAsset);
+    }
   }
 
   /// Parses one structured message posted by `window.flutter_webview`.
@@ -248,12 +253,16 @@ class _YouTubePlayerWidgetState extends State<YouTubePlayerWidget>
     _currentVideoId = videoId;
     await _whenApiReady();
     await _run('window.createPlayer(${jsonEncode(videoId)}, $autoplay);');
+    if (autoplay) {
+      await _run('window.loadVideo(${jsonEncode(videoId)}, true);');
+    }
   }
 
   @override
   Future<void> loadAndPlayVideo(String videoId) async {
     _currentVideoId = videoId;
     await _whenApiReady();
+    await _run('window.createPlayer(${jsonEncode(videoId)}, true);');
     await _run('window.loadAndPlayVideo(${jsonEncode(videoId)});');
   }
 

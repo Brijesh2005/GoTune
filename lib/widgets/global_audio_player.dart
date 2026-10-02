@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/youtube/youtube_player_service.dart';
 import '../services/youtube/youtube_player_widget.dart';
 import 'mini_player.dart';
+import 'yt_bottom_player_bar.dart';
 
 /// Application-level persistent player surface.
 ///
@@ -83,6 +84,17 @@ class GlobalAudioPlayer extends StatelessWidget {
           builder: (context, isFullPlayerVisible, __) {
             if (isFullPlayerVisible) return const SizedBox.shrink();
 
+            final isWide = MediaQuery.of(context).size.width >= 800;
+
+            if (isWide) {
+              return const Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: YtBottomPlayerBar(),
+              );
+            }
+
             return ValueListenableBuilder<int>(
               valueListenable: routeDepth,
               builder: (context, depth, __) {
@@ -104,24 +116,24 @@ class GlobalAudioPlayer extends StatelessWidget {
         // audio-first view; only its visibility changes. Destroying it would
         // stop playback and force a fresh `YT.Player` (plus another ad break)
         // on the next YouTube track.
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          height: GlobalAudioPlayer.youtubeSurfaceHeight(MediaQuery.sizeOf(context).width),
-          child: IgnorePointer(
-            child: ValueListenableBuilder<bool>(
-              valueListenable: youtubeSurfaceRequested,
-              builder: (context, requested, __) {
-                // Kept painted-but-transparent rather than removed, so
-                // playback survives navigation and screen changes.
-                return Opacity(
-                  opacity: requested ? 1.0 : 0.0,
-                  child: YouTubePlayerWidget(service: youtubePlayerService),
-                );
-              },
-            ),
-          ),
+        ValueListenableBuilder<bool>(
+          valueListenable: youtubeSurfaceRequested,
+          builder: (context, requested, __) {
+            final screenWidth = MediaQuery.sizeOf(context).width;
+            final surfaceHeight = GlobalAudioPlayer.youtubeSurfaceHeight(screenWidth);
+
+            return Positioned(
+              top: requested ? 0 : -9999,
+              left: 0,
+              right: requested ? 0 : null,
+              width: requested ? null : screenWidth.clamp(320.0, 480.0),
+              height: surfaceHeight,
+              child: IgnorePointer(
+                ignoring: !requested,
+                child: YouTubePlayerWidget(service: youtubePlayerService),
+              ),
+            );
+          },
         ),
       ],
     );

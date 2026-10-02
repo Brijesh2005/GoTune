@@ -15,6 +15,7 @@ dependencies:
   # Embedded YouTube IFrame player host (Android WebView).
   # Used only to host the official IFrame Player API; no stream extraction.
   webview_flutter: ^4.7.0
+  webview_flutter_android: ^3.16.0
 
   # Network & Image Caching
   http: ^1.2.2

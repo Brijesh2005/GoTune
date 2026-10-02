@@ -280,8 +280,25 @@ class UnifiedPlaybackController extends ChangeNotifier {
     // Record listening history & interaction stats
     _recentlyPlayedRepository?.recordTrack(track);
 
+    var trackToPlay = track;
+    if (trackToPlay.resolvedYoutubeVideoId == null || trackToPlay.resolvedYoutubeVideoId!.isEmpty) {
+      try {
+        final query = '${trackToPlay.title} ${trackToPlay.artist}'.trim();
+        final searchResults = await _repository.searchTracks(query, limit: 1);
+        if (searchResults.isNotEmpty && searchResults.first.resolvedYoutubeVideoId != null) {
+          trackToPlay = trackToPlay.copyWith(
+            youtubeVideoId: searchResults.first.resolvedYoutubeVideoId,
+          );
+          _queue[_currentIndex] = trackToPlay;
+          _currentTrack = trackToPlay;
+        }
+      } catch (e) {
+        debugPrint('[UnifiedPlaybackController] Failed to resolve YouTube ID for track: $e');
+      }
+    }
+
     try {
-      await _youtubeBackend.load(track, autoplay: true);
+      await _youtubeBackend.load(trackToPlay, autoplay: true);
     } catch (e) {
       _state = _state.copyWith(
         processingState: PlaybackProcessingState.error,
@@ -325,6 +342,8 @@ class UnifiedPlaybackController extends ChangeNotifier {
     positionNotifier.value = Duration.zero;
     notifyListeners();
   }
+
+  Future<void> setVolume(int volume) => _youtubeBackend.setVolume(volume);
 
   // ==========================================
   // QUEUE MANAGEMENT

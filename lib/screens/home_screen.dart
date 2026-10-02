@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/unified_playback_controller.dart';
 import '../providers/library_provider.dart';
 import '../providers/music_provider.dart';
-import '../screens/artist_screen.dart';
-import '../screens/settings_screen.dart';
+import '../services/builtin_playlists_service.dart';
 import '../theme/app_colors.dart';
+import '../screens/artist_screen.dart';
 import '../widgets/mix_card.dart';
 import '../widgets/track_card.dart';
+import '../widgets/yt_filter_chips.dart';
+import '../widgets/yt_hits_shelf.dart';
+import '../widgets/yt_quick_picks_grid.dart';
 
-/// Modern YouTube-Music-inspired personal music discovery dashboard.
-/// Features personalized time-based greeting, quick search bar,
-/// Quick Picks, Recently Played, Made For You mixes, Recommended Songs,
-/// Favorite Artists, Radio quick launches, Trending, Most Played, and On Repeat.
-class HomeScreen extends StatelessWidget {
+/// Modern YouTube-Music personal music discovery dashboard.
+/// Features filter chips (Podcasts, Romance, Relax, etc.),
+/// Quick Picks 4-row grid, India's biggest hits shelf, Made For You mixes,
+/// Recommended Songs, Favorite Artists, and Trending tracks.
+class HomeScreen extends StatefulWidget {
   final VoidCallback onSearchTapped;
   final VoidCallback? onProfileTapped;
   final VoidCallback onLibraryTapped;
@@ -26,16 +28,12 @@ class HomeScreen extends StatelessWidget {
     required this.onLibraryTapped,
   });
 
-  String _getGreeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-  }
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
 
-  String _getFormattedDate() {
-    return DateFormat('EEEE, d MMMM').format(DateTime.now());
-  }
+class _HomeScreenState extends State<HomeScreen> {
+  String? _selectedFilter;
 
   @override
   Widget build(BuildContext context) {
@@ -45,33 +43,33 @@ class HomeScreen extends StatelessWidget {
 
     final recents = libraryProvider.recentlyPlayed;
     final mixes = musicProvider.personalizedMixes;
-    final quickPicks = musicProvider.quickPicks;
+    final quickPicks = musicProvider.quickPicks.isNotEmpty
+        ? musicProvider.quickPicks
+        : BuiltinPlaylistsService.curatedQuickPicks;
     final recommended = musicProvider.recommendedForYou;
+    final trending = musicProvider.trendingTracks;
+    final builtinPlaylists = BuiltinPlaylistsService.getBuiltinPlaylists();
+    final becauseTracks = musicProvider.becauseYouListenedTracks;
+    final becauseArtist = musicProvider.becauseYouListenedArtist;
+    final favoriteArtists = musicProvider.favoriteArtists;
     final mostPlayed = musicProvider.mostPlayed;
     final onRepeat = musicProvider.onRepeat;
     final rediscover = musicProvider.rediscover;
-    final favoriteArtists = musicProvider.favoriteArtists;
-    final trending = musicProvider.trendingTracks;
     final discovery = musicProvider.discoveryTracks;
-    final becauseTracks = musicProvider.becauseYouListenedTracks;
-    final becauseArtist = musicProvider.becauseYouListenedArtist;
-
-    // Genre facets come from the discovery layer (MusicProvider), never a
-    // hardcoded list here, so the browse chips stay in sync with the catalogs.
     final genreFacets = musicProvider.genres;
     final genres = genreFacets.isNotEmpty
         ? genreFacets.map((g) => g.title).toList()
-        : <String>[
+        : const <String>[
             'Bollywood',
             'Pop',
-            'Electronic',
+            'Hip Hop',
             'Punjabi',
-            'Hip-Hop',
-            'Lo-Fi',
             'Rock',
-            'Acoustic',
+            'Indie',
+            'Electronic',
             'R&B',
-            'Ambient',
+            'Classical',
+            'Jazz',
           ];
 
     return Scaffold(
@@ -88,144 +86,45 @@ class HomeScreen extends StatelessWidget {
             ]);
           },
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
             children: [
-              // 1. App Header: "GO TUNE" Kicker + Date + "Good evening, Brijesh" + Settings Gear
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              'GO TUNE',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _getFormattedDate(),
-                            style: const TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '${_getGreeting()}, Brijesh',
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                  // Settings Gear Button
-                  GestureDetector(
-                    onTap: () {
-                      if (onProfileTapped != null) {
-                        onProfileTapped!();
-                      } else {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                        );
-                      }
-                    },
-                    child: Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceElevated,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: const Color(0x1AFFFFFF), width: 1),
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.settings_rounded,
-                          color: AppColors.textPrimary,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              // 1. YouTube Music Filter Chips Row
+              YtFilterChips(
+                selectedChip: _selectedFilter,
+                onChipSelected: (chip) {
+                  setState(() => _selectedFilter = chip);
+                  if (chip != null) {
+                    musicProvider.setDiscoveryGenre(chip);
+                  }
+                },
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 28),
 
-              // 2. Search Bar Shortcut
-              GestureDetector(
-                onTap: onSearchTapped,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceElevated,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.border, width: 1),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.search_rounded, color: AppColors.primary, size: 22),
-                      SizedBox(width: 12),
-                      Text(
-                        'Search songs, artists, albums...',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              // 2. Section 1: "Quick picks" 4-row grid matching YouTube Music
+              YtQuickPicksGrid(
+                tracks: quickPicks,
+                onPlayAll: () {
+                  if (quickPicks.isNotEmpty) {
+                    audioPlayer.playTrack(
+                      quickPicks.first,
+                      playlist: quickPicks,
+                      initialIndex: 0,
+                    );
+                  }
+                },
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 38),
 
-              // 3. Quick Picks Shelf
-              if (quickPicks.isNotEmpty) ...[
-                _buildSectionHeader('Quick Picks', subtitle: 'Start listening with one tap'),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 215,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: quickPicks.length,
-                    itemBuilder: (context, index) {
-                      final track = quickPicks[index];
-                      return TrackCard(
-                        track: track,
-                        queue: quickPicks,
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 28),
-              ],
+              // 3. Section 2: "MUSIC THAT'S HOT AND HAPPENING! / India's biggest hits"
+              YtHitsShelf(playlists: builtinPlaylists),
+              const SizedBox(height: 38),
 
               // 4. Recently Played Shelf
               if (recents.isNotEmpty) ...[
                 _buildSectionHeader(
                   'Recently Played',
                   actionLabel: 'See all',
-                  onAction: onLibraryTapped,
+                  onAction: widget.onLibraryTapped,
                 ),
                 const SizedBox(height: 12),
                 SizedBox(

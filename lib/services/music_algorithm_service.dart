@@ -4,6 +4,7 @@ import '../models/interaction_event.dart';
 import '../models/recommendation.dart';
 import '../models/track.dart';
 import '../repositories/track_repository.dart';
+import 'builtin_playlists_service.dart';
 
 enum RadioType { song, artist, album, genre, mood }
 
@@ -321,14 +322,19 @@ class MusicAlgorithmService {
     );
   }
 
-  /// Returns quick picks: familiar favorites and high completion songs.
+  /// Returns quick picks: familiar favorites and high completion songs,
+  /// falling back to curated hits (matching YouTube Music) if history is scarce.
   List<Track> getQuickPicks({
     required List<Track> history,
     required List<Track> favorites,
-    int limit = 8,
+    int limit = 12,
   }) {
     final combined = <Track>[...favorites, ...history];
-    return Track.deduplicate(combined).take(limit).toList();
+    if (combined.isEmpty) {
+      return BuiltinPlaylistsService.curatedQuickPicks.take(limit).toList();
+    }
+    final merged = <Track>[...combined, ...BuiltinPlaylistsService.curatedQuickPicks];
+    return Track.deduplicate(merged).take(limit).toList();
   }
 
   /// Returns most played tracks based on user interaction statistics.
