@@ -32,11 +32,12 @@ class LibraryProvider extends ChangeNotifier {
 
   List<Track> get favorites => List.unmodifiable(_favorites);
   List<Playlist> get playlists => List.unmodifiable(_playlists);
+  List<Playlist> get builtinPlaylists => _playlistRepo.getBuiltinPlaylists();
   List<RecentlyPlayedItem> get recentlyPlayed => List.unmodifiable(_recentlyPlayed);
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  /// Loads/refreshes all library collections from persistence.
+  /// Loads/refreshes all library collections from local persistence.
   void loadLibrary() {
     _isLoading = true;
     _errorMessage = null;
@@ -84,13 +85,6 @@ class LibraryProvider extends ChangeNotifier {
   // PLAYLISTS
   // ==========================================
 
-  List<Playlist> get builtinPlaylists => _playlistRepo.getBuiltinPlaylists();
-  Playlist get featuredPlaylist => _playlistRepo.getFeaturedPlaylist();
-
-  Playlist? getPlaylist(String id) {
-    return _playlistRepo.getPlaylistById(id);
-  }
-
   Future<Playlist> createPlaylist(String name, {String description = ''}) async {
     final playlist = await _playlistRepo.createPlaylist(name, description: description);
     _playlists = _playlistRepo.getPlaylists();
@@ -98,74 +92,60 @@ class LibraryProvider extends ChangeNotifier {
     return playlist;
   }
 
-  Future<bool> renamePlaylist(String id, String newName, {String? newDescription}) async {
-    final success = await _playlistRepo.renamePlaylist(id, newName, newDescription: newDescription);
-    if (success) {
-      _playlists = _playlistRepo.getPlaylists();
-      notifyListeners();
-    }
-    return success;
+  Future<void> renamePlaylist(String id, String newName, {String? newDescription}) async {
+    await _playlistRepo.renamePlaylist(id, newName, newDescription: newDescription);
+    _playlists = _playlistRepo.getPlaylists();
+    notifyListeners();
   }
 
-  Future<bool> deletePlaylist(String id) async {
-    final success = await _playlistRepo.deletePlaylist(id);
-    if (success) {
-      _playlists = _playlistRepo.getPlaylists();
-      notifyListeners();
-    }
-    return success;
+  Future<void> deletePlaylist(String id) async {
+    await _playlistRepo.deletePlaylist(id);
+    _playlists = _playlistRepo.getPlaylists();
+    notifyListeners();
   }
 
-  /// Adds a track to a playlist, preventing duplicates.
-  /// Returns `true` if added successfully, `false` if track was already in playlist.
-  Future<bool> addTrackToPlaylist(String playlistId, Track track) async {
-    final playlist = getPlaylist(playlistId);
-    if (playlist == null) return false;
-
-    // Prevent duplicate tracks
-    if (playlist.containsTrack(track.id)) {
-      return false;
-    }
-
-    final success = await _playlistRepo.addTrackToPlaylist(playlistId, track);
-    if (success) {
-      _playlists = _playlistRepo.getPlaylists();
-      notifyListeners();
-    }
-    return success;
+  Future<void> addTrackToPlaylist(String playlistId, Track track) async {
+    await _playlistRepo.addTrackToPlaylist(playlistId, track);
+    _playlists = _playlistRepo.getPlaylists();
+    notifyListeners();
   }
 
-  Future<bool> removeTrackFromPlaylist(String playlistId, String trackId) async {
-    final success = await _playlistRepo.removeTrackFromPlaylist(playlistId, trackId);
-    if (success) {
-      _playlists = _playlistRepo.getPlaylists();
-      notifyListeners();
-    }
-    return success;
+  Future<void> removeTrackFromPlaylist(String playlistId, String trackId) async {
+    await _playlistRepo.removeTrackFromPlaylist(playlistId, trackId);
+    _playlists = _playlistRepo.getPlaylists();
+    notifyListeners();
   }
 
-  Future<bool> reorderPlaylistTracks(String playlistId, int oldIndex, int newIndex) async {
-    final success = await _playlistRepo.reorderPlaylistTracks(playlistId, oldIndex, newIndex);
-    if (success) {
-      _playlists = _playlistRepo.getPlaylists();
-      notifyListeners();
+  Playlist? getPlaylist(String id) {
+    try {
+      return _playlists.firstWhere((p) => p.id == id);
+    } catch (_) {
+      return _playlistRepo.getPlaylistById(id);
     }
-    return success;
+  }
+
+  Future<void> reorderPlaylistTracks(String playlistId, int oldIndex, int newIndex) async {
+    await _playlistRepo.reorderPlaylistTracks(playlistId, oldIndex, newIndex);
+    _playlists = _playlistRepo.getPlaylists();
+    notifyListeners();
   }
 
   // ==========================================
   // RECENTLY PLAYED
   // ==========================================
 
-  Future<void> recordTrackPlayed(Track track) async {
+  Future<void> recordPlayedTrack(Track track) async {
     await _recentsRepo.recordTrack(track);
     _recentlyPlayed = _recentsRepo.getRecentlyPlayed();
     notifyListeners();
   }
 
-  Future<void> clearRecentlyPlayed() async {
+  Future<void> clearHistory() async {
     await _recentsRepo.clearHistory();
     _recentlyPlayed = [];
     notifyListeners();
   }
+
+  Future<void> clearRecentlyPlayed() => clearHistory();
 }
+

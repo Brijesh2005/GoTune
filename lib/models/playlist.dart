@@ -1,14 +1,19 @@
 import '../utils/duration_formatter.dart';
+import 'music_content.dart';
 import 'track.dart';
 
 /// Represents a user-created personal playlist containing curated tracks.
-class Playlist {
+class Playlist implements MusicContent {
   final String id;
   final String name;
   final String description;
   final DateTime createdAt;
   final DateTime updatedAt;
   final List<Track> tracks;
+  @override
+  final String provider;
+  @override
+  final Map<String, dynamic> metadata;
 
   const Playlist({
     required this.id,
@@ -17,7 +22,30 @@ class Playlist {
     required this.createdAt,
     required this.updatedAt,
     this.tracks = const [],
+    this.provider = 'local',
+    this.metadata = const {},
   });
+
+  @override
+  String get providerId => id;
+
+  @override
+  ContentType get contentType => ContentType.playlist;
+
+  @override
+  String get contentKey => '$provider:${contentType.name}:$providerId';
+
+  @override
+  String get title => name;
+
+  @override
+  String get subtitle => '$trackCount tracks';
+
+  @override
+  String get artworkUrl => coverArtworkUrl;
+
+  @override
+  bool get isPlayable => tracks.isNotEmpty;
 
   int get trackCount => tracks.length;
 
@@ -56,6 +84,8 @@ class Playlist {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       tracks: tracks ?? List.from(this.tracks),
+      provider: provider,
+      metadata: metadata,
     );
   }
 

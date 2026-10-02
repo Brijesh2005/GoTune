@@ -1,4 +1,5 @@
-/// Custom exceptions and standard responses for Audius API interactions.
+/// Custom exceptions and standard responses for API interactions.
+library;
 
 /// Base API exception
 class ApiException implements Exception {
@@ -12,15 +13,15 @@ class ApiException implements Exception {
   String toString() => 'ApiException: $message (Status: $statusCode)';
 }
 
-/// Thrown when Audius API returns HTTP 429 Too Many Requests
+/// Thrown when API returns HTTP 429 Too Many Requests
 class RateLimitException extends ApiException {
-  RateLimitException({String message = 'Audius API rate limit reached. Please wait a moment.'})
+  RateLimitException({String message = 'API rate limit reached. Please wait a moment.'})
       : super(message, statusCode: 429);
 }
 
 /// Thrown when network connection fails or request times out
 class NetworkException extends ApiException {
-  NetworkException({String message = 'Unable to reach Audius network. Please check your connection.'})
+  NetworkException({String message = 'Unable to reach network. Please check your internet connection.'})
       : super(message, statusCode: null);
 }
 

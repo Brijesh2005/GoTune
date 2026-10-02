@@ -22,35 +22,28 @@ void main() {
   });
 
   group('Track Model Tests', () {
-    test('parses Audius JSON properly', () {
+    test('parses YouTube JSON properly', () {
       final sampleJson = {
         'id': 'test_track_123',
+        'videoId': 'test_track_123',
         'title': 'Starlight Echoes',
         'genre': 'Electronic',
-        'duration': 180,
-        'user': {
-          'name': 'Nova Beats',
-          'handle': 'novabeats',
-          'is_verified': true,
-        },
-        'artwork': {
-          '150x150': 'https://example.com/art_150.jpg',
-          '480x480': 'https://example.com/art_480.jpg',
-          '1000x1000': 'https://example.com/art_1000.jpg',
-        },
-        'stream': {
-          'url': 'https://example.com/stream.mp3',
-        },
+        'lengthSeconds': 180,
+        'author': 'Nova Beats',
+        'videoThumbnails': [
+          {'url': 'https://example.com/art_150.jpg'},
+          {'url': 'https://example.com/art_480.jpg'},
+        ],
       };
 
-      final track = Track.fromAudiusJson(sampleJson);
+      final track = Track.fromYouTubeJson(sampleJson);
       expect(track.id, 'test_track_123');
+      expect(track.youtubeVideoId, 'test_track_123');
       expect(track.title, 'Starlight Echoes');
       expect(track.artist, 'Nova Beats');
-      expect(track.isArtistVerified, true);
       expect(track.bestArtworkUrl, 'https://example.com/art_480.jpg');
       expect(track.formattedDuration, '3:00');
-      expect(track.streamInfo.directStreamUrl, 'https://example.com/stream.mp3');
+      expect(track.isYouTubeIframe, isTrue);
     });
 
     test('serializes and deserializes to JSON correctly', () {
@@ -133,10 +126,10 @@ void main() {
   group('Queue Operations Logic Tests', () {
     test('Play Next inserts track immediately after current index', () {
       final queue = <String>['track_A', 'track_B', 'track_C'];
-      final currentIndex = 0; // playing track_A
+      const currentIndex = 0; // playing track_A
 
-      final newTrack = 'track_INSERTED';
-      final insertIndex = currentIndex + 1;
+      const newTrack = 'track_INSERTED';
+      const insertIndex = currentIndex + 1;
       queue.insert(insertIndex, newTrack);
 
       expect(queue, ['track_A', 'track_INSERTED', 'track_B', 'track_C']);
@@ -146,7 +139,7 @@ void main() {
     test('Reordering queue preserves integrity', () {
       final queue = <String>['track_1', 'track_2', 'track_3', 'track_4'];
       // Move track_1 (oldIndex 0) to after track_3 (newIndex 3)
-      final oldIndex = 0;
+      const oldIndex = 0;
       int newIndex = 3;
       if (oldIndex < newIndex) {
         newIndex -= 1;
@@ -161,7 +154,7 @@ void main() {
   group('Phase 4: Smart Shuffle Logic Tests', () {
     test('Smart shuffle retains current track at index 0 and shuffles upcoming tracks', () {
       final originalQueue = ['song_current', 'song_1', 'song_2', 'song_3', 'song_4'];
-      final currentIndex = 0;
+      const currentIndex = 0;
       final currentTrack = originalQueue[currentIndex];
 
       final upcoming = List<String>.from(originalQueue)..removeAt(currentIndex);

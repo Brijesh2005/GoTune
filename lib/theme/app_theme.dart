@@ -51,7 +51,7 @@ class GoTuneTheme {
         inactiveTrackColor: AppColors.border,
         thumbColor: Colors.white,
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-        overlayColor: AppColors.primary.withOpacity(0.2),
+        overlayColor: AppColors.primary.withValues(alpha: 0.2),
         trackHeight: 3.5,
       ),
       inputDecorationTheme: InputDecorationTheme(

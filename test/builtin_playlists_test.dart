@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gotune/repositories/playlist_repository.dart';
-import 'package:gotune/services/builtin_playlists_service.dart';
 import 'package:gotune/services/local_storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,7 +27,8 @@ void main() {
       expect(featured.id, 'builtin_after_dark');
       expect(featured.tracks, isNotEmpty);
       expect(featured.tracks.first.title, 'After Dark');
-      expect(featured.tracks.first.streamInfo.isStreamable, isTrue);
+      expect(featured.tracks.first.resolvedYoutubeVideoId, isNotNull);
+      expect(featured.tracks.first.isPlayable, isTrue);
     });
 
     test('Global Pop Essentials contains Adele Lovesong', () {

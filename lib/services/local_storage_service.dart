@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_constants.dart';
+import '../models/interaction_event.dart';
 import '../models/playlist.dart';
 import '../models/recently_played_item.dart';
 import '../models/track.dart';
@@ -331,5 +332,125 @@ class LocalStorageService {
 
   Future<bool> setAudioQuality(String quality) async {
     return _prefs.setString(AppConstants.keyAudioQuality, quality);
+  }
+
+  // ==========================================
+  // RECOMMENDATION & INTERACTION EVENTS PERSISTENCE
+  // ==========================================
+
+  static const String keyInteractionStats = 'gotune_interaction_stats_v1';
+
+  UserInteractionStats getInteractionStats() {
+    final raw = _prefs.getString(keyInteractionStats);
+    if (raw == null || raw.isEmpty) return const UserInteractionStats();
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      return UserInteractionStats.fromJson(map);
+    } catch (_) {
+      return const UserInteractionStats();
+    }
+  }
+
+  Future<bool> saveInteractionStats(UserInteractionStats stats) async {
+    return _prefs.setString(keyInteractionStats, jsonEncode(stats.toJson()));
+  }
+
+  Future<void> recordInteractionEvent(
+    InteractionEventType type, {
+    Track? track,
+    String? artist,
+    String? genre,
+    String? query,
+  }) async {
+    final current = getInteractionStats();
+
+    final songPlays = Map<String, int>.from(current.songPlayCounts);
+    final songCompletions = Map<String, int>.from(current.songCompletionCounts);
+    final songSkips = Map<String, int>.from(current.songSkipCounts);
+    final songLastPlayed = Map<String, DateTime>.from(current.songLastPlayed);
+    final artistPlays = Map<String, int>.from(current.artistPlayCounts);
+    final artistSkips = Map<String, int>.from(current.artistSkipCounts);
+    final genrePlays = Map<String, int>.from(current.genrePlayCounts);
+    final recentSkips = List<String>.from(current.recentSkippedTrackIds);
+
+    final trackId = track?.id ?? '';
+    final trackArtist = artist ?? track?.artist ?? '';
+    final trackGenre = genre ?? track?.genre ?? '';
+
+    switch (type) {
+      case InteractionEventType.songStarted:
+      case InteractionEventType.songReplayed:
+        if (trackId.isNotEmpty) {
+          songPlays[trackId] = (songPlays[trackId] ?? 0) + 1;
+          songLastPlayed[trackId] = DateTime.now();
+        }
+        if (trackArtist.isNotEmpty) {
+          artistPlays[trackArtist] = (artistPlays[trackArtist] ?? 0) + 1;
+        }
+        if (trackGenre.isNotEmpty) {
+          genrePlays[trackGenre] = (genrePlays[trackGenre] ?? 0) + 1;
+        }
+        break;
+
+      case InteractionEventType.songCompleted:
+        if (trackId.isNotEmpty) {
+          songCompletions[trackId] = (songCompletions[trackId] ?? 0) + 1;
+        }
+        break;
+
+      case InteractionEventType.songSkipped:
+        if (trackId.isNotEmpty) {
+          songSkips[trackId] = (songSkips[trackId] ?? 0) + 1;
+          recentSkips.remove(trackId);
+          recentSkips.insert(0, trackId);
+          if (recentSkips.length > 25) {
+            recentSkips.removeRange(25, recentSkips.length);
+          }
+        }
+        if (trackArtist.isNotEmpty) {
+          artistSkips[trackArtist] = (artistSkips[trackArtist] ?? 0) + 1;
+        }
+        break;
+
+      case InteractionEventType.songPartiallyPlayed:
+        if (trackId.isNotEmpty) {
+          songPlays[trackId] = (songPlays[trackId] ?? 0) + 1;
+        }
+        break;
+
+      case InteractionEventType.artistPlayed:
+        if (trackArtist.isNotEmpty) {
+          artistPlays[trackArtist] = (artistPlays[trackArtist] ?? 0) + 1;
+        }
+        break;
+
+      case InteractionEventType.genrePlayed:
+        if (trackGenre.isNotEmpty) {
+          genrePlays[trackGenre] = (genrePlays[trackGenre] ?? 0) + 1;
+        }
+        break;
+
+      case InteractionEventType.searchPerformed:
+        if (query != null && query.isNotEmpty) {
+          addSearchQuery(query);
+        }
+        break;
+
+      default:
+        break;
+    }
+
+    final updated = UserInteractionStats(
+      songPlayCounts: songPlays,
+      songCompletionCounts: songCompletions,
+      songSkipCounts: songSkips,
+      songLastPlayed: songLastPlayed,
+      artistPlayCounts: artistPlays,
+      artistSkipCounts: artistSkips,
+      genrePlayCounts: genrePlays,
+      recentSkippedTrackIds: recentSkips,
+    );
+
+    await saveInteractionStats(updated);
   }
 }

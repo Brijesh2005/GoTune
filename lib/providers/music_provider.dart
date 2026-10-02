@@ -1,65 +1,145 @@
 import 'package:flutter/foundation.dart';
-import '../models/api_response.dart';
+import '../models/album.dart';
+import '../models/artist.dart';
+import '../models/home_feed.dart';
+import '../models/music_content.dart';
+import '../models/playlist.dart';
+import '../models/recommendation.dart';
+import '../models/search_discovery_result.dart';
 import '../models/track.dart';
 import '../repositories/track_repository.dart';
+import '../services/music_algorithm_service.dart';
+import '../services/music_discovery_service.dart';
 import '../utils/debouncer.dart';
 
 enum LoadState { initial, loading, success, error }
+enum SearchCategory { all, songs, artists, albums, playlists, genres }
 
-/// Main provider managing music discovery, trending streams, search, and library state.
+/// Main provider managing music discovery, trending streams, progressive dashboard loading,
+/// search categorization across all categories, and personalized mixes.
+/// Architecturally drives discovery through [MusicDiscoveryService] and [HomeFeed].
 class MusicProvider extends ChangeNotifier {
   final TrackRepository _repository;
+  late final MusicAlgorithmService _algorithmService;
+  late final MusicDiscoveryService _discoveryService;
   final Debouncer _searchDebouncer = Debouncer(delay: const Duration(milliseconds: 400));
 
-  MusicProvider(this._repository) {
+  MusicProvider(
+    this._repository, {
+    MusicAlgorithmService? algorithmService,
+    MusicDiscoveryService? discoveryService,
+  }) {
+    _algorithmService = algorithmService ?? MusicAlgorithmService(repository: _repository);
+    _discoveryService = discoveryService ??
+        MusicDiscoveryService(
+          aggregator: _repository.catalogAggregator,
+          algorithmService: _algorithmService,
+          storageService: _repository.storageService,
+          cache: _repository.cacheService,
+        );
     loadHomeData();
     refreshLibraryData();
     loadSearchHistory();
   }
 
-  // --- Home / Trending State ---
+  MusicDiscoveryService get discoveryService => _discoveryService;
+  MusicAlgorithmService get algorithmService => _algorithmService;
+  TrackRepository get repository => _repository;
+
+  // --- Home / Dashboard States (Unified HomeFeed Architecture) ---
+  HomeFeed? _homeFeed;
+  HomeFeed? get homeFeed => _homeFeed;
+
+  List<PersonalizedMix> _personalizedMixes = [];
+  LoadState _mixesState = LoadState.initial;
+  List<PersonalizedMix> get personalizedMixes => _homeFeed?.personalizedMixes ?? _personalizedMixes;
+  LoadState get mixesState => _mixesState;
+
+  List<Track> _quickPicks = [];
+  List<Track> get quickPicks => _homeFeed?.quickPicks ?? _quickPicks;
+
+  List<Track> _recommendedForYou = [];
+  List<Track> get recommendedForYou => _homeFeed?.recommendedSongs ?? _recommendedForYou;
+
+  List<Track> _mostPlayed = [];
+  List<Track> get mostPlayed => _homeFeed?.mostPlayed ?? _mostPlayed;
+
+  List<Track> _onRepeat = [];
+  List<Track> get onRepeat => _homeFeed?.onRepeat ?? _onRepeat;
+
+  List<Track> _rediscover = [];
+  List<Track> get rediscover => _homeFeed?.rediscover ?? _rediscover;
+
+  List<String> _favoriteArtists = [];
+  List<String> get favoriteArtists => _homeFeed?.favoriteArtists ?? _favoriteArtists;
+
   List<Track> _trendingTracks = [];
   LoadState _trendingState = LoadState.initial;
   String _trendingError = '';
-
-  List<Track> get trendingTracks => _trendingTracks;
+  List<Track> get trendingTracks => _homeFeed?.trendingTracks ?? _trendingTracks;
   LoadState get trendingState => _trendingState;
   String get trendingError => _trendingError;
 
-  // --- Discovery State ---
   List<Track> _discoveryTracks = [];
   LoadState _discoveryState = LoadState.initial;
   String _discoveryError = '';
   String _selectedGenre = 'All';
-
-  List<Track> get discoveryTracks => _discoveryTracks;
+  List<Track> get discoveryTracks => _discoveryTracks.isNotEmpty ? _discoveryTracks : (_homeFeed?.popularNow ?? []);
   LoadState get discoveryState => _discoveryState;
   String get discoveryError => _discoveryError;
   String get selectedGenre => _selectedGenre;
 
+  List<Track> _becauseYouListenedTracks = [];
+  String? _becauseYouListenedArtist;
+  List<Track> get becauseYouListenedTracks => _homeFeed?.becauseYouListened ?? _becauseYouListenedTracks;
+  String? get becauseYouListenedArtist => _homeFeed?.becauseYouListenedSeed ?? _becauseYouListenedArtist;
+
+  /// Genre facets, supplied by the discovery layer instead of a hardcoded list.
+  List<MusicGenre> get genres => _homeFeed?.genres ?? const [];
+
+  /// Mood facets, supplied by the discovery layer.
+  List<MusicMood> get moods => _homeFeed?.moods ?? const [];
+
+  /// Artist names related to [artistName], for the "Fans also like" shelf on
+  /// the artist page.
+  ///
+  /// Exposed through the provider so screens never reach into the ranking
+  /// engine directly.
+  List<String> relatedArtistNames(String artistName) {
+    return MusicAlgorithmService.getSiblingArtists(artistName, null);
+  }
+
   // --- Search State ---
   String _searchQuery = '';
-  List<Track> _searchResults = [];
+  SearchCategory _searchCategory = SearchCategory.all;
+  String _searchProvider = 'all'; // 'all', 'youtube'
   LoadState _searchState = LoadState.initial;
   String _searchError = '';
   bool _hasSearched = false;
-  String _searchProvider = 'all'; // 'all', 'youtube', 'saavn', 'audius'
+
+  SearchDiscoveryResult? _searchDiscoveryResult;
+  SearchDiscoveryResult? get searchDiscoveryResult => _searchDiscoveryResult;
+
+  List<Track> _searchResults = [];
+  List<Artist> _artistResults = [];
+  List<Album> _albumResults = [];
+  List<Playlist> _playlistResults = [];
+  List<MusicGenre> _genreResults = [];
+  List<MusicMood> _moodResults = [];
 
   String get searchQuery => _searchQuery;
-  List<Track> get searchResults => _searchResults;
+  SearchCategory get searchCategory => _searchCategory;
+  String get searchProvider => _searchProvider;
   LoadState get searchState => _searchState;
   String get searchError => _searchError;
   bool get hasSearched => _hasSearched;
-  String get searchProvider => _searchProvider;
 
-  void setSearchProvider(String provider) {
-    if (_searchProvider == provider) return;
-    _searchProvider = provider;
-    notifyListeners();
-    if (_searchQuery.trim().isNotEmpty) {
-      executeSearch(_searchQuery, addToHistory: false);
-    }
-  }
+  List<Track> get searchResults => _searchResults;
+  List<Artist> get artistResults => _artistResults;
+  List<Album> get albumResults => _albumResults;
+  List<Playlist> get playlistResults => _playlistResults;
+  List<MusicGenre> get genreResults => _genreResults;
+  List<MusicMood> get moodResults => _moodResults;
 
   List<String> _searchHistory = [];
   List<String> get searchHistory => List.unmodifiable(_searchHistory);
@@ -71,86 +151,112 @@ class MusicProvider extends ChangeNotifier {
   List<Track> get favorites => _favorites;
   List<Track> get recentlyPlayed => _recentlyPlayed;
 
-  // --- Methods ---
+  // --- PROGRESSIVE HOME DATA LOADING (VIA MUSICDISCOVERYSERVICE) ---
 
-  /// Loads initial home data (trending + discovery tracks).
-  Future<void> loadHomeData() async {
-    await Future.wait([
-      fetchTrendingTracks(),
-      fetchDiscoveryTracks(),
-    ]);
+  /// Loads home dashboard via unified [HomeFeed] through [MusicDiscoveryService].
+  Future<void> loadHomeData({bool forceRefresh = false}) async {
+    refreshLibraryData();
+
+    _trendingState = LoadState.loading;
+    _discoveryState = LoadState.loading;
+    _mixesState = LoadState.loading;
+    _trendingError = '';
+    _discoveryError = '';
+    notifyListeners();
+
+    try {
+      final feed = await _discoveryService.getHomeFeed(forceRefresh: forceRefresh);
+      _homeFeed = feed;
+
+      _quickPicks = feed.quickPicks;
+      _recommendedForYou = feed.recommendedSongs;
+      _trendingTracks = feed.trendingTracks;
+      _discoveryTracks = feed.popularNow;
+      _mostPlayed = feed.mostPlayed;
+      _onRepeat = feed.onRepeat;
+      _rediscover = feed.rediscover;
+      _favoriteArtists = feed.favoriteArtists;
+      _personalizedMixes = feed.personalizedMixes;
+      _becauseYouListenedTracks = feed.becauseYouListened;
+      _becauseYouListenedArtist = feed.becauseYouListenedSeed;
+
+      _trendingState = LoadState.success;
+      _discoveryState = LoadState.success;
+      _mixesState = LoadState.success;
+    } catch (e) {
+      debugPrint('[MusicProvider] loadHomeData error: $e');
+      _trendingState = LoadState.error;
+      _discoveryState = LoadState.error;
+      _mixesState = LoadState.error;
+      _trendingError = "Couldn't load discovery feed. Check your connection.";
+    }
+    notifyListeners();
   }
 
-  /// Fetches trending tracks across sources.
   Future<void> fetchTrendingTracks() async {
     _trendingState = LoadState.loading;
     _trendingError = '';
     notifyListeners();
 
     try {
-      _trendingTracks = await _repository.getTrendingTracks(limit: 25, provider: 'all');
+      _trendingTracks = await _discoveryService.getTrending(limit: 20);
       _trendingState = LoadState.success;
-    } on RateLimitException catch (e) {
-      _trendingState = LoadState.error;
-      _trendingError = e.message;
-    } on NetworkException catch (e) {
-      _trendingState = LoadState.error;
-      _trendingError = e.message;
-    } on ApiException catch (e) {
-      _trendingState = LoadState.error;
-      _trendingError = e.message;
     } catch (e) {
       _trendingState = LoadState.error;
-      _trendingError = 'Unexpected error fetching trending tracks: $e';
+      _trendingError = "Couldn't load trending music.";
     }
     notifyListeners();
   }
 
-  /// Selects a genre filter and reloads discovery tracks.
   Future<void> setDiscoveryGenre(String genre) async {
     if (_selectedGenre == genre) return;
     _selectedGenre = genre;
     await fetchDiscoveryTracks();
   }
 
-  /// Fetches popular / discovery tracks for the currently selected genre.
   Future<void> fetchDiscoveryTracks() async {
     _discoveryState = LoadState.loading;
     _discoveryError = '';
     notifyListeners();
 
     try {
-      _discoveryTracks = await _repository.getTrendingTracks(
+      _discoveryTracks = await _discoveryService.getTrending(
         genre: _selectedGenre == 'All' ? null : _selectedGenre,
-        limit: 25,
-        provider: 'all',
+        limit: 15,
       );
       _discoveryState = LoadState.success;
-    } on RateLimitException catch (e) {
-      _discoveryState = LoadState.error;
-      _discoveryError = e.message;
-    } on NetworkException catch (e) {
-      _discoveryState = LoadState.error;
-      _discoveryError = e.message;
-    } on ApiException catch (e) {
-      _discoveryState = LoadState.error;
-      _discoveryError = e.message;
     } catch (e) {
       _discoveryState = LoadState.error;
-      _discoveryError = 'Unexpected error fetching discovery tracks: $e';
+      _discoveryError = "Couldn't load discoveries.";
     }
     notifyListeners();
   }
 
-  /// Debounced search trigger.
+  // --- SEARCH METHODS (VIA MUSICDISCOVERYSERVICE) ---
+
+  void setSearchCategory(SearchCategory category) {
+    if (_searchCategory == category) return;
+    _searchCategory = category;
+    notifyListeners();
+    if (_searchQuery.trim().isNotEmpty) {
+      executeSearch(_searchQuery, addToHistory: false);
+    }
+  }
+
+  void setSearchProvider(String provider) {
+    if (_searchProvider == provider) return;
+    _searchProvider = provider;
+    notifyListeners();
+    if (_searchQuery.trim().isNotEmpty) {
+      executeSearch(_searchQuery, addToHistory: false);
+    }
+  }
+
   void onSearchQueryChanged(String query) {
     _searchQuery = query;
     if (query.trim().isEmpty) {
       _searchDebouncer.cancel();
-      _searchResults = [];
-      _searchState = LoadState.initial;
-      _hasSearched = false;
-      notifyListeners();
+      clearSearch();
       return;
     }
 
@@ -162,12 +268,9 @@ class MusicProvider extends ChangeNotifier {
     });
   }
 
-  /// Executes track search immediately.
-  Future<void> executeSearch(
-    String query, {
-    bool addToHistory = true,
-    String? provider,
-  }) async {
+  /// Executes centralized search via [MusicDiscoveryService.search],
+  /// retrieving normalized, multi-source, deduplicated results across categories.
+  Future<void> executeSearch(String query, {bool addToHistory = true}) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return;
 
@@ -182,40 +285,83 @@ class MusicProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _searchResults = await _repository.searchTracks(
+      final categoryName = _searchCategory == SearchCategory.all
+          ? 'all'
+          : _searchCategory.name;
+
+      final result = await _discoveryService.search(
         trimmed,
-        limit: 30,
-        provider: provider ?? _searchProvider,
+        category: categoryName,
+        providerFilter: _searchProvider,
+        limit: 25,
       );
+
+      _searchDiscoveryResult = result;
+      _searchResults = result.songs;
+      _artistResults = result.artists;
+      _albumResults = result.albums;
+      _playlistResults = result.playlists;
+      _genreResults = result.genres;
+      _moodResults = result.moods;
+
       _searchState = LoadState.success;
-    } on RateLimitException catch (e) {
-      _searchState = LoadState.error;
-      _searchError = e.message;
-    } on NetworkException catch (e) {
-      _searchState = LoadState.error;
-      _searchError = e.message;
-    } on ApiException catch (e) {
-      _searchState = LoadState.error;
-      _searchError = e.message;
     } catch (e) {
+      debugPrint('[MusicProvider] executeSearch error: $e');
       _searchState = LoadState.error;
-      _searchError = 'Error during search: $e';
+      _searchError = "Couldn't complete search. Check your connection.";
     }
     notifyListeners();
   }
 
-  /// Clears active search.
   void clearSearch() {
     _searchDebouncer.cancel();
     _searchQuery = '';
     _searchResults = [];
+    _artistResults = [];
+    _albumResults = [];
+    _playlistResults = [];
+    _genreResults = [];
+    _moodResults = [];
+    _searchDiscoveryResult = null;
     _searchState = LoadState.initial;
     _searchError = '';
     _hasSearched = false;
     notifyListeners();
   }
 
-  // --- Search History Methods ---
+  // --- CATALOG & CONTENT DETAILS (VIA MUSICDISCOVERYSERVICE) ---
+
+  Future<Artist?> getArtistDetails(String artistId) {
+    return _discoveryService.getArtist(artistId);
+  }
+
+  Future<Album?> getAlbumDetails(String albumId) {
+    return _discoveryService.getAlbum(albumId);
+  }
+
+  /// Track search for screens that need a bare result list (e.g. filling an
+  /// artist page when the catalog has no artist record). Uses the aggregated
+  /// fan-out, so results are deduplicated across catalogs.
+  Future<List<Track>> searchTracks(String query, {int limit = 25}) async {
+    final result = await _discoveryService.search(query, limit: limit);
+    return result.songs;
+  }
+
+  /// Related songs for [track], resolved through the unified song-detail
+  /// contract so the page's related shelf, artist credit and album credit all
+  /// come from one call.
+  Future<List<Track>> getRelatedTracks(Track track, {int limit = 15}) async {
+    final detail = await _discoveryService.getSongDetail(track, limit: limit);
+    return detail.relatedTracks;
+  }
+
+  /// Full song-detail bundle: song + related tracks + related artists +
+  /// similar albums, resolved in one call.
+  Future<SongDetail?> getSongDetail(Track track, {int limit = 15}) {
+    return _discoveryService.getSongDetail(track, limit: limit);
+  }
+
+  // --- SEARCH HISTORY ---
 
   void loadSearchHistory() {
     _searchHistory = _repository.getSearchHistory();
@@ -242,7 +388,7 @@ class MusicProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // --- Library Methods ---
+  // --- LIBRARY STATE ---
 
   void refreshLibraryData() {
     _favorites = _repository.getFavorites();

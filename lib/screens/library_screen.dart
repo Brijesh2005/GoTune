@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/playlist.dart';
-import '../models/track.dart';
-import '../providers/audio_player_provider.dart';
+import '../providers/unified_playback_controller.dart';
 import '../providers/library_provider.dart';
-import '../screens/now_playing_screen.dart';
+import '../providers/music_provider.dart';
 import '../screens/playlist_detail_screen.dart';
-import '../services/builtin_playlists_service.dart';
+import '../screens/settings_screen.dart';
 import '../theme/app_colors.dart';
+import '../widgets/track_tile.dart';
 
-/// Redesigned Library Screen matching the Pulse aesthetic,
-/// featuring tabbed navigation for Playlists (including built-ins), Albums, and Artists.
+/// Redesigned Library Screen matching modern music app aesthetics,
+/// featuring tabbed navigation for Playlists, Favorites, Recents, and Device Audio.
+/// Supports automated built-in playlists (Liked Songs, Recently Played, Most Played, On Repeat, Rediscover),
+/// and local device grouping by Songs, Albums, and Artists.
 class LibraryScreen extends StatefulWidget {
   final VoidCallback onExploreTapped;
 
@@ -103,7 +105,8 @@ class _LibraryScreenState extends State<LibraryScreen>
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryProvider>();
-    final audioPlayer = context.read<AudioPlayerProvider>();
+    final audioPlayer = context.read<UnifiedPlaybackController>();
+    final music = context.watch<MusicProvider>();
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -113,7 +116,7 @@ class _LibraryScreenState extends State<LibraryScreen>
           headerSliverBuilder: (context, innerBoxIsScrolled) => [
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 20, 18, 10),
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -121,37 +124,51 @@ class _LibraryScreenState extends State<LibraryScreen>
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text(
-                          'Your library',
+                          'Your Library',
                           style: TextStyle(
                             color: AppColors.textPrimary,
-                            fontSize: 30,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.6,
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.add_rounded, color: AppColors.primaryLight, size: 28),
-                          tooltip: 'Create Playlist',
-                          onPressed: () => _showCreatePlaylistDialog(context, library),
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.add_rounded, color: AppColors.primaryLight, size: 28),
+                              tooltip: 'Create Playlist',
+                              onPressed: () => _showCreatePlaylistDialog(context, library),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.settings_rounded, color: AppColors.textPrimary, size: 22),
+                              tooltip: 'Settings',
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                                );
+                              },
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
 
-                    // Custom Tab Bar matching the Pulse design
+                    // Custom Tab Bar: Playlists, Favorites, Recents
                     TabBar(
                       controller: _tabController,
                       indicatorColor: AppColors.primary,
                       indicatorWeight: 2.5,
                       labelColor: Colors.white,
-                      unselectedLabelColor: AppColors.textSecondary,
-                      labelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                      unselectedLabelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                      unselectedLabelColor: AppColors.textMuted,
+                      labelStyle: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+                      unselectedLabelStyle: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w500),
                       dividerColor: const Color(0x1AFFFFFF),
                       tabs: const [
                         Tab(text: 'Playlists'),
-                        Tab(text: 'Albums'),
-                        Tab(text: 'Artists'),
+                        Tab(text: 'Favorites'),
+                        Tab(text: 'Recents'),
                       ],
                     ),
                   ],
@@ -162,9 +179,9 @@ class _LibraryScreenState extends State<LibraryScreen>
           body: TabBarView(
             controller: _tabController,
             children: [
-              _buildPlaylistsTab(context, library, audioPlayer),
-              _buildAlbumsTab(context, library, audioPlayer),
-              _buildArtistsTab(context, library, audioPlayer),
+              _buildPlaylistsTab(context, library, audioPlayer, music),
+              _buildFavoritesTab(context, library, audioPlayer),
+              _buildRecentsTab(context, library, audioPlayer),
             ],
           ),
         ),
@@ -178,49 +195,279 @@ class _LibraryScreenState extends State<LibraryScreen>
   Widget _buildPlaylistsTab(
     BuildContext context,
     LibraryProvider library,
-    AudioPlayerProvider audioPlayer,
+    UnifiedPlaybackController audioPlayer,
+    MusicProvider music,
   ) {
-    final favorites = library.favorites;
     final userPlaylists = library.playlists;
     final builtinPlaylists = library.builtinPlaylists;
+    final favorites = library.favorites;
+    final recents = library.recentlyPlayed.map((r) => r.track).toList();
+    final mostPlayed = music.mostPlayed;
+    final onRepeat = music.onRepeat;
+    final rediscover = music.rediscover;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 120),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
       children: [
-        // 1. Liked Songs tile matching prototype
-        _buildSurfaceRow(
-          iconWidget: Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Center(
-              child: Icon(Icons.favorite_rounded, color: Colors.white, size: 24),
-            ),
-          ),
-          title: 'Liked Songs',
-          subtitle: '${favorites.length} songs',
-          trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-          onTap: () {
-            if (favorites.isNotEmpty) {
-              audioPlayer.playTrack(favorites.first, playlist: favorites);
-              NowPlayingScreen.show(context);
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('No liked songs yet! Tap the heart on any song.')),
-              );
-            }
-          },
-        ),
-        const SizedBox(height: 18),
-
-        // 2. Built-in Curated Playlists Section
+        // 1. Auto-Generated Smart Playlists
         const Padding(
           padding: EdgeInsets.only(left: 4, bottom: 8),
           child: Text(
-            'BUILT-IN PLAYLISTS',
+            'AUTO PLAYLISTS',
+            style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.1,
+            ),
+          ),
+        ),
+
+        // Liked Songs Auto Playlist
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: _buildSurfaceRow(
+            iconWidget: Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFE50914), Color(0xFF6B0E1A)],
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Center(
+                child: Icon(Icons.favorite_rounded, color: Colors.white, size: 24),
+              ),
+            ),
+            title: 'Liked Songs',
+            subtitle: '${favorites.length} favorite songs',
+            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+            onTap: () {
+              final autoPl = Playlist(
+                id: 'auto_liked',
+                name: 'Liked Songs',
+                description: 'Your favorite tracks in one place',
+                createdAt: DateTime.now(),
+                updatedAt: DateTime.now(),
+                tracks: favorites,
+              );
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => PlaylistDetailScreen(playlist: autoPl),
+                ),
+              );
+            },
+          ),
+        ),
+
+        // Recently Played Auto Playlist
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: _buildSurfaceRow(
+            iconWidget: Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF1DB954), Color(0xFF0F5A29)],
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Center(
+                child: Icon(Icons.history_rounded, color: Colors.white, size: 24),
+              ),
+            ),
+            title: 'Recently Played',
+            subtitle: '${recents.length} played tracks',
+            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+            onTap: () {
+              final autoPl = Playlist(
+                id: 'auto_recents',
+                name: 'Recently Played',
+                description: 'Your recent listening history',
+                createdAt: DateTime.now(),
+                updatedAt: DateTime.now(),
+                tracks: recents,
+              );
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => PlaylistDetailScreen(playlist: autoPl),
+                ),
+              );
+            },
+          ),
+        ),
+
+        // Most Played Auto Playlist
+        if (mostPlayed.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: _buildSurfaceRow(
+              iconWidget: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF00B0FF), Color(0xFF005B9F)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Center(
+                  child: Icon(Icons.bar_chart_rounded, color: Colors.white, size: 24),
+                ),
+              ),
+              title: 'Most Played',
+              subtitle: '${mostPlayed.length} top rotation tracks',
+              trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+              onTap: () {
+                final autoPl = Playlist(
+                  id: 'auto_most_played',
+                  name: 'Most Played',
+                  description: 'Your highest rotation tracks',
+                  createdAt: DateTime.now(),
+                  updatedAt: DateTime.now(),
+                  tracks: mostPlayed,
+                );
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => PlaylistDetailScreen(playlist: autoPl),
+                  ),
+                );
+              },
+            ),
+          ),
+
+        // On Repeat Auto Playlist
+        if (onRepeat.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: _buildSurfaceRow(
+              iconWidget: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFF9800), Color(0xFFB26A00)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Center(
+                  child: Icon(Icons.repeat_rounded, color: Colors.white, size: 24),
+                ),
+              ),
+              title: 'On Repeat',
+              subtitle: '${onRepeat.length} tracks on loop',
+              trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+              onTap: () {
+                final autoPl = Playlist(
+                  id: 'auto_on_repeat',
+                  name: 'On Repeat',
+                  description: 'Songs you keep coming back to',
+                  createdAt: DateTime.now(),
+                  updatedAt: DateTime.now(),
+                  tracks: onRepeat,
+                );
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => PlaylistDetailScreen(playlist: autoPl),
+                  ),
+                );
+              },
+            ),
+          ),
+
+        // Rediscover Auto Playlist
+        if (rediscover.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: _buildSurfaceRow(
+              iconWidget: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF9C27B0), Color(0xFF4A148C)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Center(
+                  child: Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 24),
+                ),
+              ),
+              title: 'Rediscover',
+              subtitle: '${rediscover.length} past favorites to rekindle',
+              trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+              onTap: () {
+                final autoPl = Playlist(
+                  id: 'auto_rediscover',
+                  name: 'Rediscover',
+                  description: 'Treasures from your past rotation',
+                  createdAt: DateTime.now(),
+                  updatedAt: DateTime.now(),
+                  tracks: rediscover,
+                );
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => PlaylistDetailScreen(playlist: autoPl),
+                  ),
+                );
+              },
+            ),
+          ),
+
+        const SizedBox(height: 16),
+
+        // 2. User Playlists Section
+        if (userPlaylists.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              'YOUR PLAYLISTS',
+              style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.1,
+              ),
+            ),
+          ),
+          ...userPlaylists.map((playlist) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: _buildSurfaceRow(
+                iconWidget: Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceElevated,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.queue_music_rounded, color: AppColors.primary, size: 24),
+                  ),
+                ),
+                title: playlist.name,
+                subtitle: '${playlist.tracks.length} songs',
+                trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
+                    ),
+                  );
+                },
+              ),
+            );
+          }),
+          const SizedBox(height: 16),
+        ],
+
+        // 3. Built-in Curated Playlists
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'CURATED PLAYLISTS',
             style: TextStyle(
               color: AppColors.textMuted,
               fontSize: 11.5,
@@ -234,36 +481,21 @@ class _LibraryScreenState extends State<LibraryScreen>
             padding: const EdgeInsets.only(bottom: 8.0),
             child: _buildSurfaceRow(
               iconWidget: Container(
-                width: 52,
-                height: 52,
+                width: 50,
+                height: 50,
                 decoration: BoxDecoration(
-                  gradient: AppColors.artTileGradient,
-                  borderRadius: BorderRadius.circular(14),
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Center(
-                  child: Icon(Icons.waves_rounded, color: AppColors.primaryLight, size: 24),
+                  child: Icon(Icons.waves_rounded, color: Colors.white, size: 24),
                 ),
               ),
               title: playlist.name,
-              subtitle: 'Curated · ${playlist.tracks.length} songs',
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.play_circle_fill_rounded, color: AppColors.primary, size: 28),
-                    onPressed: () {
-                      if (playlist.tracks.isNotEmpty) {
-                        audioPlayer.playTrack(playlist.tracks.first, playlist: playlist.tracks);
-                        NowPlayingScreen.show(context);
-                      }
-                    },
-                  ),
-                  const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                ],
-              ),
+              subtitle: '${playlist.tracks.length} songs',
+              trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
               onTap: () {
-                Navigator.push(
-                  context,
+                Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
                   ),
@@ -272,210 +504,150 @@ class _LibraryScreenState extends State<LibraryScreen>
             ),
           );
         }),
-        const SizedBox(height: 18),
-
-        // 3. User Custom Playlists
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(left: 4),
-              child: Text(
-                'MY PLAYLISTS',
-                style: TextStyle(
-                  color: AppColors.textMuted,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.1,
-                ),
-              ),
-            ),
-            GestureDetector(
-              onTap: () => _showCreatePlaylistDialog(context, library),
-              child: const Text(
-                '+ New Playlist',
-                style: TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-
-        if (userPlaylists.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0x1AFFFFFF)),
-            ),
-            child: const Center(
-              child: Text(
-                'No custom playlists yet. Tap + New Playlist to make one!',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-            ),
-          )
-        else
-          ...userPlaylists.map((playlist) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8.0),
-              child: _buildSurfaceRow(
-                iconWidget: Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceElevated,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Center(
-                    child: Icon(Icons.queue_music_rounded, color: AppColors.textPrimary, size: 24),
-                  ),
-                ),
-                title: playlist.name,
-                subtitle: '${playlist.tracks.length} songs',
-                trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
-                    ),
-                  );
-                },
-              ),
-            );
-          }),
       ],
     );
   }
 
   // ==========================================
-  // ALBUMS TAB
+  // FAVORITES TAB
   // ==========================================
-  Widget _buildAlbumsTab(
+  Widget _buildFavoritesTab(
     BuildContext context,
     LibraryProvider library,
-    AudioPlayerProvider audioPlayer,
+    UnifiedPlaybackController audioPlayer,
   ) {
-    // Collect distinct albums from recents & favorites
-    final allTracks = <Track>[
-      ...library.favorites,
-      ...library.recentlyPlayed.map((r) => r.track),
-    ];
-    final albums = <String, List<Track>>{};
-    for (final t in allTracks) {
-      if (t.genre.isNotEmpty) {
-        albums.putIfAbsent(t.genre, () => []).add(t);
-      }
-    }
+    final favorites = library.favorites;
 
-    if (albums.isEmpty) {
-      return const Center(
-        child: Text(
-          'Play or like tracks to see albums here.',
-          style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+    if (favorites.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.favorite_border_rounded, size: 48, color: AppColors.textMuted),
+              const SizedBox(height: 12),
+              const Text(
+                'No favorites yet',
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Tap the heart icon on any song to save it here for instant offline playback.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.textMuted, fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 18),
+              ElevatedButton.icon(
+                onPressed: widget.onExploreTapped,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+                icon: const Icon(Icons.explore_rounded),
+                label: const Text('Discover Music'),
+              ),
+            ],
+          ),
         ),
       );
     }
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 120),
-      children: albums.entries.map((entry) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8.0),
-          child: _buildSurfaceRow(
-            iconWidget: Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                gradient: AppColors.artTileGradient,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Center(
-                child: Icon(Icons.album_rounded, color: AppColors.primaryLight, size: 24),
-              ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${favorites.length} songs',
+              style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
             ),
-            title: entry.key,
-            subtitle: '${entry.value.first.artist} · Collection (${entry.value.length} tracks)',
-            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-            onTap: () {
-              audioPlayer.playTrack(entry.value.first, playlist: entry.value);
-              NowPlayingScreen.show(context);
-            },
-          ),
-        );
-      }).toList(),
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.play_arrow_rounded, color: AppColors.primary, size: 28),
+                  tooltip: 'Play All',
+                  onPressed: () {
+                    audioPlayer.playTrack(favorites.first, playlist: favorites, initialIndex: 0);
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.shuffle_rounded, color: AppColors.textMuted, size: 22),
+                  tooltip: 'Shuffle',
+                  onPressed: () {
+                    final shuffled = List.of(favorites)..shuffle();
+                    audioPlayer.playTrack(shuffled.first, playlist: shuffled, initialIndex: 0);
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        ...favorites.asMap().entries.map((entry) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: TrackTile(
+              track: entry.value,
+              playlist: favorites,
+              index: entry.key,
+            ),
+          );
+        }),
+      ],
     );
   }
 
   // ==========================================
-  // ARTISTS TAB
+  // RECENTS TAB
   // ==========================================
-  Widget _buildArtistsTab(
+  Widget _buildRecentsTab(
     BuildContext context,
     LibraryProvider library,
-    AudioPlayerProvider audioPlayer,
+    UnifiedPlaybackController audioPlayer,
   ) {
-    final allTracks = <Track>[
-      ...library.favorites,
-      ...library.recentlyPlayed.map((r) => r.track),
-    ];
-    final artists = <String, List<Track>>{};
-    for (final t in allTracks) {
-      if (t.artist.isNotEmpty && t.artist != 'Unknown Artist') {
-        artists.putIfAbsent(t.artist, () => []).add(t);
-      }
-    }
+    final recents = library.recentlyPlayed;
 
-    if (artists.isEmpty) {
+    if (recents.isEmpty) {
       return const Center(
-        child: Text(
-          'Play or like tracks to see artists here.',
-          style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
-        ),
+        child: Text('No listening history yet', style: TextStyle(color: AppColors.textMuted)),
       );
     }
 
+    final recentTracks = recents.map((r) => r.track).toList();
+
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 120),
-      children: artists.entries.map((entry) {
-        final initial = entry.key.isNotEmpty ? entry.key[0].toUpperCase() : 'A';
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8.0),
-          child: _buildSurfaceRow(
-            iconWidget: Container(
-              width: 52,
-              height: 52,
-              decoration: const BoxDecoration(
-                color: Color(0xFF27313C),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  initial,
-                  style: const TextStyle(
-                    color: AppColors.primaryLight,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${recents.length} played tracks',
+              style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
             ),
-            title: entry.key,
-            subtitle: 'Artist · ${entry.value.length} songs in library',
-            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-            onTap: () {
-              audioPlayer.playTrack(entry.value.first, playlist: entry.value);
-              NowPlayingScreen.show(context);
-            },
-          ),
-        );
-      }).toList(),
+            TextButton(
+              onPressed: () => library.clearRecentlyPlayed(),
+              child: const Text('Clear History', style: TextStyle(color: AppColors.primary, fontSize: 13)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        ...recents.asMap().entries.map((entry) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: TrackTile(
+              track: entry.value.track,
+              playlist: recentTracks,
+              index: entry.key,
+            ),
+          );
+        }),
+      ],
     );
   }
 
@@ -488,54 +660,25 @@ class _LibraryScreenState extends State<LibraryScreen>
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: AppColors.surfaceElevated,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0x14FFFFFF), width: 1),
+        border: Border.all(color: AppColors.border),
       ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              children: [
-                iconWidget,
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 12.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                trailing,
-              ],
-            ),
-          ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        leading: iconWidget,
+        title: Text(
+          title,
+          style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+        trailing: trailing,
+        onTap: onTap,
       ),
     );
   }

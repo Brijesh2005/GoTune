@@ -2,8 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
-/// Reusable network image with cached persistence, smooth dark placeholder,
-/// and fallback music icon.
+/// Reusable network image with memory-capped cached persistence (150-500px),
+/// smooth dark placeholder, and fallback music icon.
 class NetworkArtwork extends StatelessWidget {
   final String? imageUrl;
   final double width;
@@ -24,6 +24,9 @@ class NetworkArtwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final validUrl = imageUrl != null && imageUrl!.trim().isNotEmpty;
 
+    final targetMemWidth = (width * 2).clamp(100.0, 500.0).toInt();
+    final targetMemHeight = (height * 2).clamp(100.0, 500.0).toInt();
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: Container(
@@ -36,6 +39,10 @@ class NetworkArtwork extends StatelessWidget {
                 width: width,
                 height: height,
                 fit: fit,
+                memCacheWidth: targetMemWidth,
+                memCacheHeight: targetMemHeight,
+                maxWidthDiskCache: 500,
+                maxHeightDiskCache: 500,
                 placeholder: (context, url) => Container(
                   color: AppColors.surfaceElevated,
                   child: const Center(
@@ -68,7 +75,7 @@ class NetworkArtwork extends StatelessWidget {
       child: Center(
         child: Icon(
           Icons.music_note_rounded,
-          color: AppColors.primaryLight.withOpacity(0.6),
+          color: AppColors.primaryLight.withValues(alpha: 0.6),
           size: width * 0.45,
         ),
       ),

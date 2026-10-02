@@ -1,323 +1,426 @@
-import 'package:audio_service/audio_service.dart';
-import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../utils/duration_formatter.dart';
 import '../utils/html_unescape.dart';
-import 'track_stream_info.dart';
+import 'music_content.dart';
+import 'playback_type.dart';
 
-/// Represents a music track with complete metadata, artwork, and streaming info.
-class Track {
+/// Unified Track model representing a YouTube music track.
+/// Contains metadata, video identifier for the official YouTube IFrame Player,
+/// artwork URLs, and duration.
+class Track implements MusicContent {
   final String id;
+  @override
   final String title;
   final String artist;
-  final String? artistHandle;
-  final bool isArtistVerified;
+  final String? album;
+  final String? thumbnailUrl;
+  final Duration? _duration;
+  final String source; // 'youtube'
+
+  // Supplementary YouTube metadata fields
+  final String? youtubeVideoId;
   final String? artworkUrl150;
   final String? artworkUrl480;
   final String? artworkUrl1000;
   final int durationSeconds;
   final String genre;
-  final int playCount;
-  final int favoriteCount;
-  final int repostCount;
-  final String provider;
-  final TrackStreamInfo streamInfo;
+  final bool explicit;
+  @override
+  final Map<String, dynamic> metadata;
+  final String? artistId;
+  final String? albumId;
+  final int? playCount;
   final DateTime? releaseDate;
+  final bool isArtistVerified;
+  final PlaybackType sourceType;
 
   const Track({
     required this.id,
     required this.title,
     required this.artist,
-    this.artistHandle,
-    this.isArtistVerified = false,
+    this.album,
+    this.thumbnailUrl,
+    Duration? duration,
+    String? source,
+    String? provider,
+    this.youtubeVideoId,
+    String? providerTrackId,
+    String? sourceId,
+    String? albumName,
+    PlaybackType? sourceType,
     this.artworkUrl150,
     this.artworkUrl480,
     this.artworkUrl1000,
     this.durationSeconds = 0,
     this.genre = 'Music',
-    this.playCount = 0,
-    this.favoriteCount = 0,
-    this.repostCount = 0,
-    this.provider = 'audius',
-    this.streamInfo = const TrackStreamInfo(),
+    this.explicit = false,
+    this.metadata = const {},
+    this.artistId,
+    this.albumId,
+    this.playCount,
     this.releaseDate,
-  });
+    this.isArtistVerified = false,
+  })  : _duration = duration,
+        source = provider ?? source ?? 'youtube',
+        sourceType = sourceType ?? PlaybackType.youtubeIframe;
 
-  /// Highest resolution available artwork URL with graceful fallback.
+  Duration? get duration =>
+      _duration ?? (durationSeconds > 0 ? Duration(seconds: durationSeconds) : null);
+
+  // Backward-compatible aliases
+  @override
+  String get provider => source;
+  String? get albumName => album;
+  String? get providerTrackId => resolvedYoutubeVideoId;
+  String? get sourceId => resolvedYoutubeVideoId;
+  bool get isLocal => false;
+
+  /// High-resolution artwork URL (~480-500px).
   String get bestArtworkUrl {
+    if (thumbnailUrl != null && thumbnailUrl!.isNotEmpty) return thumbnailUrl!;
     if (artworkUrl480 != null && artworkUrl480!.isNotEmpty) return artworkUrl480!;
-    if (artworkUrl1000 != null && artworkUrl1000!.isNotEmpty) return artworkUrl1000!;
     if (artworkUrl150 != null && artworkUrl150!.isNotEmpty) return artworkUrl150!;
+    if (artworkUrl1000 != null && artworkUrl1000!.isNotEmpty) return artworkUrl1000!;
+    final vid = resolvedYoutubeVideoId;
+    if (vid != null && vid.isNotEmpty) {
+      return 'https://i.ytimg.com/vi/$vid/hqdefault.jpg';
+    }
     return '';
   }
 
-  /// Thumbnail size artwork.
+  /// Compact thumbnail size artwork (~150px) for lists.
   String get thumbnailArtworkUrl {
+    if (thumbnailUrl != null && thumbnailUrl!.isNotEmpty) return thumbnailUrl!;
     if (artworkUrl150 != null && artworkUrl150!.isNotEmpty) return artworkUrl150!;
     if (artworkUrl480 != null && artworkUrl480!.isNotEmpty) return artworkUrl480!;
+    final vid = resolvedYoutubeVideoId;
+    if (vid != null && vid.isNotEmpty) {
+      return 'https://i.ytimg.com/vi/$vid/default.jpg';
+    }
     return '';
   }
+
+  @override
+  String get artworkUrl => bestArtworkUrl;
 
   /// Formatted duration string (e.g. "3:42").
   String get formattedDuration => DurationFormatter.formatSeconds(durationSeconds);
 
-  /// Converts this Track to an [audio_service] MediaItem for background playback.
-  MediaItem toMediaItem({String? resolvedStreamUrl}) {
-    final effectiveStream = resolvedStreamUrl ??
-        (streamInfo.directStreamUrl != null && streamInfo.directStreamUrl!.isNotEmpty
-            ? streamInfo.directStreamUrl
-            : null);
-    return MediaItem(
-      id: id,
-      album: genre.isNotEmpty
-          ? genre
-          : (provider == 'saavn'
-              ? 'JioSaavn'
-              : (provider == 'youtube' ? 'YouTube' : 'Audius')),
-      title: title,
-      artist: artist,
-      duration: Duration(seconds: durationSeconds),
-      artUri: bestArtworkUrl.isNotEmpty ? Uri.tryParse(bestArtworkUrl) : null,
-      extras: {
-        'provider': provider,
-        'streamUrl': effectiveStream,
-        'artistHandle': artistHandle,
-        'isVerified': isArtistVerified,
-        'mirrors': streamInfo.mirrors,
-      },
-    );
-  }
+  // --- YouTube IFrame playback ---
 
-  /// Creates a Track instance from an Audius API JSON object.
-  factory Track.fromAudiusJson(Map<String, dynamic> json) {
-    final userJson = json['user'] as Map<String, dynamic>?;
-    final artworkJson = json['artwork'] as Map<String, dynamic>?;
-    final streamJson = json['stream'] as Map<String, dynamic>?;
-
-    DateTime? parsedDate;
-    if (json['release_date'] != null) {
-      parsedDate = DateTime.tryParse(json['release_date'].toString());
-    } else if (json['created_at'] != null) {
-      parsedDate = DateTime.tryParse(json['created_at'].toString());
+  /// Resolves the clean 11-character YouTube video ID to hand to `YT.Player`.
+  String? get resolvedYoutubeVideoId {
+    final explicitId = youtubeVideoId;
+    if (explicitId != null && explicitId.isNotEmpty) {
+      return explicitId;
     }
 
-    return Track(
-      id: json['id']?.toString() ?? '',
-      title: (json['title'] as String?)?.trim().isNotEmpty == true
-          ? json['title'].toString().trim()
-          : 'Untitled Track',
-      artist: (userJson?['name'] as String?)?.trim().isNotEmpty == true
-          ? userJson!['name'].toString().trim()
-          : (userJson?['handle'] as String?) ?? 'Unknown Artist',
-      artistHandle: userJson?['handle']?.toString(),
-      isArtistVerified: userJson?['is_verified'] == true,
-      artworkUrl150: artworkJson?['150x150']?.toString(),
-      artworkUrl480: artworkJson?['480x480']?.toString(),
-      artworkUrl1000: artworkJson?['1000x1000']?.toString(),
-      durationSeconds: (json['duration'] as num?)?.toInt() ?? 0,
-      genre: json['genre']?.toString() ?? 'Music',
-      playCount: (json['play_count'] as num?)?.toInt() ?? 0,
-      favoriteCount: (json['favorite_count'] as num?)?.toInt() ?? 0,
-      repostCount: (json['repost_count'] as num?)?.toInt() ?? 0,
-      provider: 'audius',
-      streamInfo: TrackStreamInfo.fromJson(
-        streamJson,
-        isStreamable: json['is_streamable'] != false,
+    if (id.startsWith('yt_')) {
+      final stripped = id.substring(3);
+      if (stripped.isNotEmpty) return stripped;
+    }
+
+    if (_looksLikeYoutubeVideoId(id)) return id;
+
+    return null;
+  }
+
+  static bool _looksLikeYoutubeVideoId(String value) {
+    if (value.length != 11) return false;
+    return RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(value);
+  }
+
+  PlaybackType get playbackType => PlaybackType.youtubeIframe;
+
+  bool get isYouTubeIframe => true;
+
+  @override
+  String get providerId => resolvedYoutubeVideoId ?? id;
+
+  @override
+  ContentType get contentType => ContentType.song;
+
+  @override
+  String get contentKey => '$provider:song:$providerId';
+
+  @override
+  String get subtitle => artist;
+
+  @override
+  bool get isPlayable => resolvedYoutubeVideoId != null || id.isNotEmpty;
+
+  // --- Normalization & Deduplication ---
+
+  static String normalizeTitle(String raw) {
+    if (raw.trim().isEmpty) return '';
+    var s = HtmlUnescape.unescape(raw).toLowerCase();
+    s = s.replaceAll(
+      RegExp(
+        r'[\(\[](official\s*(music\s*)?video|official\s*audio|audio|lyrics|lyric\s*video|hq|hd|remastered[^\)\]]*|visualizer|album\s*version|live|acoustic[^\)\]]*)[^\)\]]*[\)\]]',
+        caseSensitive: false,
       ),
-      releaseDate: parsedDate,
+      '',
     );
+    s = s.replaceAll(RegExp(r'[\(\[]\s*(feat\.|ft\.|featuring)\s+[^)\]]+[\)\]]', caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r'\s+-\s+.*$'), '');
+    s = s.replaceAll(RegExp(r'[^\w\s]'), ' ');
+    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return s;
   }
 
-  /// Creates a Track instance from a JioSaavn song JSON object.
-  factory Track.fromSaavnJson(
-    Map<String, dynamic> json, {
-    String? decryptedStreamUrl,
-  }) {
-    final moreInfo = json['more_info'] as Map<String, dynamic>?;
+  static String normalizeArtist(String raw) {
+    if (raw.trim().isEmpty) return '';
+    var s = HtmlUnescape.unescape(raw).toLowerCase();
+    s = s.replaceAll(RegExp(r'\s*-\s*topic$', caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r'\s*vevo$', caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r'\s*(feat\.|ft\.|featuring|,|&)\s+.*$', caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r'^the\s+', caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r'[^\w\s]'), ' ');
+    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return s;
+  }
 
-    // Parse artists cleanly from artistMap or subtitle
-    String artistName = '';
-    final primaryArtistsList = moreInfo?['artistMap']?['primary_artists'] as List<dynamic>?;
-    if (primaryArtistsList != null && primaryArtistsList.isNotEmpty) {
-      artistName = primaryArtistsList
-          .map((a) => a is Map ? a['name']?.toString() : null)
-          .where((name) => name != null && name.trim().isNotEmpty)
-          .join(', ');
-    }
-    if (artistName.isEmpty && json['subtitle'] != null) {
-      final subtitle = json['subtitle'].toString();
-      final parts = subtitle.split(' - ');
-      artistName = parts.first.trim();
-    }
-    if (artistName.isEmpty && moreInfo?['music'] != null) {
-      artistName = moreInfo!['music'].toString();
-    }
-    if (artistName.isEmpty) {
-      artistName = 'Unknown Artist';
-    }
+  bool isSimilarTo(Track other) {
+    final titleA = normalizeTitle(title);
+    final titleB = normalizeTitle(other.title);
+    if (titleA.isEmpty || titleB.isEmpty) return false;
 
-    final rawTitle = json['title']?.toString() ?? 'Untitled Track';
-    final cleanTitle = HtmlUnescape.unescape(rawTitle);
-    final cleanArtist = HtmlUnescape.unescape(artistName);
+    if (titleA == titleB) return true;
 
-    // Duration in seconds
-    int duration = 0;
-    if (moreInfo?['duration'] != null) {
-      duration = int.tryParse(moreInfo!['duration'].toString()) ?? 0;
-    } else if (json['duration'] != null) {
-      duration = int.tryParse(json['duration'].toString()) ?? 0;
+    final artistA = normalizeArtist(artist);
+    final artistB = normalizeArtist(other.artist);
+    final sameArtist = artistA.isNotEmpty && artistB.isNotEmpty &&
+        (artistA == artistB || artistA.contains(artistB) || artistB.contains(artistA));
+
+    if (sameArtist && (titleA.contains(titleB) || titleB.contains(titleA))) {
+      return true;
     }
 
-    // Artwork: 150x150, 500x500
-    final baseImage = json['image']?.toString();
-    final art150 = baseImage;
-    final art500 = baseImage?.replaceAll('150x150.jpg', '500x500.jpg');
-
-    // Language / Genre
-    final lang = json['language']?.toString().trim();
-    final album = moreInfo?['album']?.toString().trim();
-    String genre = 'Bollywood';
-    if (lang != null && lang.isNotEmpty) {
-      genre = lang[0].toUpperCase() + lang.substring(1);
-    } else if (album != null && album.isNotEmpty) {
-      genre = HtmlUnescape.unescape(album);
-    }
-
-    DateTime? releaseDate;
-    if (json['year'] != null) {
-      final yr = int.tryParse(json['year'].toString());
-      if (yr != null && yr > 1900) {
-        releaseDate = DateTime(yr);
+    if (durationSeconds > 0 && other.durationSeconds > 0) {
+      final diff = (durationSeconds - other.durationSeconds).abs();
+      if (diff <= 3 && sameArtist) {
+        return true;
       }
     }
 
+    return false;
+  }
+
+  /// Compact canonical fingerprint for cross-catalog deduplication.
+  String get normalizedFingerprint {
+    final t = normalizeTitle(title);
+    final a = normalizeArtist(artist);
+    if (t.isEmpty && a.isEmpty) return id;
+    return '$t::$a';
+  }
+
+  /// Deduplicates tracks preserving first-occurrence order.
+  static List<Track> deduplicate(List<Track> tracks) {
+    final seen = <String>{};
+    final result = <Track>[];
+    for (final track in tracks) {
+      final fp = track.normalizedFingerprint;
+      if (seen.add(fp)) {
+        result.add(track);
+      }
+    }
+    return result;
+  }
+
+  // --- Factory Constructors for YouTube Data ---
+
+  factory Track.fromYouTubeJson(Map<String, dynamic> json) {
+    final videoId = json['videoId']?.toString() ??
+        json['id']?.toString() ??
+        '';
+
+    final rawTitle = json['title']?.toString() ?? 'Untitled Track';
+    final cleanTitle = HtmlUnescape.unescape(rawTitle);
+
+    String artist = json['author']?.toString() ?? json['artist']?.toString() ?? 'YouTube Music';
+    String finalTitle = cleanTitle;
+
+    if (cleanTitle.contains(' - ') && (artist == 'YouTube Music' || artist.isEmpty)) {
+      final parts = cleanTitle.split(' - ');
+      artist = parts[0].trim();
+      finalTitle = parts.sublist(1).join(' - ').trim();
+    }
+
+    final durationSec = (json['lengthSeconds'] as num?)?.toInt() ??
+        (json['duration'] as num?)?.toInt() ??
+        0;
+
+    String? art;
+    if (json['videoThumbnails'] is List && (json['videoThumbnails'] as List).isNotEmpty) {
+      final thumbs = json['videoThumbnails'] as List;
+      art = thumbs.last['url']?.toString();
+    } else if (videoId.isNotEmpty) {
+      art = 'https://i.ytimg.com/vi/$videoId/hqdefault.jpg';
+    }
+
     return Track(
-      id: json['id']?.toString() ?? '',
-      title: cleanTitle.isNotEmpty ? cleanTitle : 'Untitled Track',
-      artist: cleanArtist.isNotEmpty ? cleanArtist : 'Unknown Artist',
-      artworkUrl150: art150,
-      artworkUrl480: art500,
-      artworkUrl1000: art500,
-      durationSeconds: duration,
+      id: videoId.isNotEmpty ? videoId : 'yt_$videoId',
+      youtubeVideoId: videoId.isNotEmpty ? videoId : null,
+      title: finalTitle.isNotEmpty ? finalTitle : 'Untitled Track',
+      artist: artist.isNotEmpty ? artist : 'YouTube Artist',
+      thumbnailUrl: art,
+      artworkUrl150: art,
+      artworkUrl480: art,
+      artworkUrl1000: art,
+      durationSeconds: durationSec,
+      duration: Duration(seconds: durationSec),
+      genre: json['genre']?.toString() ?? 'Music',
+      source: 'youtube',
+      metadata: Map<String, dynamic>.from(json),
+    );
+  }
+
+  factory Track.fromMetadata({
+    required String id,
+    required String title,
+    required String artist,
+    String? artworkUrl,
+    int durationSeconds = 0,
+    String genre = 'Music',
+    String? albumName,
+    String? albumId,
+    String? artistId,
+    String? youtubeVideoId,
+    String source = 'youtube',
+    String? provider,
+    String? streamUrl,
+    String? sourceType,
+    DateTime? releaseDate,
+    bool explicit = false,
+    Map<String, dynamic> metadata = const {},
+  }) {
+    final cleanId = id.startsWith('yt_') ? id.substring(3) : id;
+    final vid = youtubeVideoId ?? (_looksLikeYoutubeVideoId(cleanId) ? cleanId : null);
+
+    return Track(
+      id: vid ?? id,
+      youtubeVideoId: vid,
+      title: title,
+      artist: artist,
+      album: albumName,
+      thumbnailUrl: artworkUrl,
+      artworkUrl150: artworkUrl,
+      artworkUrl480: artworkUrl,
+      artworkUrl1000: artworkUrl,
+      durationSeconds: durationSeconds,
+      duration: Duration(seconds: durationSeconds),
       genre: genre,
-      playCount: int.tryParse(json['play_count']?.toString() ?? '0') ?? 0,
-      provider: 'saavn',
-      streamInfo: TrackStreamInfo(
-        directStreamUrl: decryptedStreamUrl,
-        isStreamable: decryptedStreamUrl != null && decryptedStreamUrl.isNotEmpty,
-      ),
+      source: 'youtube',
+      explicit: explicit,
+      metadata: metadata,
+      artistId: artistId,
+      albumId: albumId,
       releaseDate: releaseDate,
     );
   }
 
-  /// Creates a Track instance from a YouTube video result.
-  factory Track.fromYoutubeVideo(
-    Video video, {
-    String? resolvedStreamUrl,
+  Track copyWith({
+    String? id,
+    String? title,
+    String? artist,
+    String? album,
+    String? thumbnailUrl,
+    Duration? duration,
+    String? source,
+    String? youtubeVideoId,
+    String? artworkUrl150,
+    String? artworkUrl480,
+    String? artworkUrl1000,
+    int? durationSeconds,
+    String? genre,
+    bool? explicit,
+    Map<String, dynamic>? metadata,
+    String? artistId,
+    String? albumId,
+    String? albumName,
+    String? provider,
+    String? providerTrackId,
+    int? playCount,
+    DateTime? releaseDate,
+    bool? isArtistVerified,
   }) {
-    final rawTitle = HtmlUnescape.unescape(video.title);
-    final rawAuthor = HtmlUnescape.unescape(video.author);
-
-    // Clean author by stripping ' - Topic' suffix
-    final cleanAuthor = rawAuthor
-        .replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
-        .trim();
-    String artist = cleanAuthor;
-    String title = rawTitle;
-
-    // Many music tracks on YouTube follow "Artist - Title" format
-    if (rawTitle.contains(' - ')) {
-      final parts = rawTitle.split(' - ');
-      final possibleArtist = parts.first.trim();
-      final possibleTitle = parts.sublist(1).join(' - ').trim();
-      if (possibleArtist.isNotEmpty && possibleTitle.isNotEmpty) {
-        artist = possibleArtist;
-        title = possibleTitle;
-      }
-    }
-
-    // Strip common audio/video clutter tags from title
-    title = title
-        .replaceAll(
-          RegExp(
-            r'\s*[\(\[](official\s*(music\s*)?video|official\s*audio|official\s*lyric\s*video|lyric\s*video|official|audio|video|lyrics|hd|4k|hq|visualizer)[\)\]]',
-            caseSensitive: false,
-          ),
-          '',
-        )
-        .trim();
-
-    if (title.isEmpty) title = rawTitle;
-    if (artist.isEmpty) artist = 'Unknown Artist';
-
-    final videoId = video.id.value;
-    final art150 = video.thumbnails.lowResUrl;
-    final art480 = video.thumbnails.mediumResUrl;
-    final art1000 = video.thumbnails.highResUrl;
-
     return Track(
-      id: 'yt_$videoId',
-      title: title,
-      artist: artist,
-      artworkUrl150: art150,
-      artworkUrl480: art480,
-      artworkUrl1000: art1000,
-      durationSeconds: video.duration?.inSeconds ?? 0,
-      genre: 'Universal',
-      provider: 'youtube',
-      streamInfo: TrackStreamInfo(
-        directStreamUrl: resolvedStreamUrl,
-        isStreamable: true,
-      ),
-      releaseDate: video.uploadDate,
+      id: id ?? this.id,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      album: album ?? albumName ?? this.album,
+      thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+      duration: duration ?? this.duration,
+      source: source ?? provider ?? this.source,
+      youtubeVideoId: youtubeVideoId ?? this.youtubeVideoId,
+      artworkUrl150: artworkUrl150 ?? this.artworkUrl150,
+      artworkUrl480: artworkUrl480 ?? this.artworkUrl480,
+      artworkUrl1000: artworkUrl1000 ?? this.artworkUrl1000,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
+      genre: genre ?? this.genre,
+      explicit: explicit ?? this.explicit,
+      metadata: metadata ?? this.metadata,
+      artistId: artistId ?? this.artistId,
+      albumId: albumId ?? this.albumId,
+      playCount: playCount ?? this.playCount,
+      releaseDate: releaseDate ?? this.releaseDate,
+      isArtistVerified: isArtistVerified ?? this.isArtistVerified,
     );
   }
 
-  /// Serializes to JSON for local persistence (SharedPreferences).
   Map<String, dynamic> toJson() {
     return {
       'id': id,
       'title': title,
       'artist': artist,
-      'artistHandle': artistHandle,
-      'isArtistVerified': isArtistVerified,
-      'artworkUrl150': artworkUrl150,
-      'artworkUrl480': artworkUrl480,
-      'artworkUrl1000': artworkUrl1000,
+      'album': album,
+      'thumbnailUrl': thumbnailUrl ?? bestArtworkUrl,
       'durationSeconds': durationSeconds,
+      'source': 'youtube',
+      'youtubeVideoId': resolvedYoutubeVideoId,
       'genre': genre,
+      'explicit': explicit,
+      'artistId': artistId,
+      'albumId': albumId,
       'playCount': playCount,
-      'favoriteCount': favoriteCount,
-      'repostCount': repostCount,
-      'provider': provider,
-      'streamInfo': streamInfo.toJson(),
-      'releaseDate': releaseDate?.toIso8601String(),
+      'releaseDate': releaseDate,
+      'isArtistVerified': isArtistVerified,
+      'metadata': metadata,
     };
   }
 
-  /// Deserializes from local JSON storage.
   factory Track.fromJson(Map<String, dynamic> json) {
+    final rawId = json['id']?.toString() ?? '';
+    final vid = json['youtubeVideoId']?.toString() ??
+        (rawId.startsWith('yt_') ? rawId.substring(3) : rawId);
+    final art = json['thumbnailUrl']?.toString() ??
+        json['artworkUrl480']?.toString() ??
+        json['artworkUrl']?.toString() ??
+        json['artworkUrl150']?.toString();
+    final durationSec = (json['durationSeconds'] as num?)?.toInt() ??
+        (json['duration'] as num?)?.toInt() ??
+        0;
+
     return Track(
-      id: json['id']?.toString() ?? '',
+      id: rawId,
       title: json['title']?.toString() ?? 'Untitled Track',
-      artist: json['artist']?.toString() ?? 'Unknown Artist',
-      artistHandle: json['artistHandle']?.toString(),
-      isArtistVerified: json['isArtistVerified'] == true,
-      artworkUrl150: json['artworkUrl150']?.toString(),
-      artworkUrl480: json['artworkUrl480']?.toString(),
-      artworkUrl1000: json['artworkUrl1000']?.toString(),
-      durationSeconds: (json['durationSeconds'] as num?)?.toInt() ?? 0,
+      artist: json['artist']?.toString() ?? 'YouTube Artist',
+      album: json['album']?.toString() ?? json['albumName']?.toString(),
+      thumbnailUrl: art,
+      artworkUrl150: art,
+      artworkUrl480: art,
+      artworkUrl1000: art,
+      durationSeconds: durationSec,
+      duration: Duration(seconds: durationSec),
+      source: 'youtube',
+      youtubeVideoId: vid.isNotEmpty ? vid : null,
       genre: json['genre']?.toString() ?? 'Music',
-      playCount: (json['playCount'] as num?)?.toInt() ?? 0,
-      favoriteCount: (json['favoriteCount'] as num?)?.toInt() ?? 0,
-      repostCount: (json['repostCount'] as num?)?.toInt() ?? 0,
-      provider: json['provider']?.toString() ?? 'audius',
-      streamInfo: TrackStreamInfo.fromJson(
-        json['streamInfo'] as Map<String, dynamic>?,
-        isStreamable: true,
-      ),
-      releaseDate: json['releaseDate'] != null
-          ? DateTime.tryParse(json['releaseDate'].toString())
-          : null,
+      explicit: json['explicit'] == true,
+      artistId: json['artistId']?.toString(),
+      albumId: json['albumId']?.toString(),
+      playCount: (json['playCount'] as num?)?.toInt(),
+      releaseDate: json['releaseDate'] != null ? DateTime.tryParse(json['releaseDate'].toString()) : null,
+      isArtistVerified: json['isArtistVerified'] == true,
+      metadata: json['metadata'] is Map ? Map<String, dynamic>.from(json['metadata'] as Map) : const {},
     );
   }
 

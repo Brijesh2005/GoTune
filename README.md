@@ -1,30 +1,27 @@
 # GoTune 🎵
 
-A personal, modern dark music streaming application built with **Flutter**, featuring a high-performance **dual-engine architecture** powered by **JioSaavn** and **Audius**.
+A personal, modern dark music streaming application built with **Flutter**, featuring a high-performance, lightweight **YouTube-centered architecture** powered by the official embedded **YouTube IFrame Player**.
 
 ---
 
 ## ✨ Features
 
-- **Dual-Engine Streaming Catalog:**
-  - **JioSaavn Engine:** Full access to mainstream Bollywood, Punjabi hits, regional Indian songs, and new film soundtracks (including *Hangover*, *Dhurandhar*, Arijit Singh, Sidhu Moose Wala) streamed in **crystal-clear 320kbps audio**.
-  - **Audius Engine:** Decentralized catalog for trending electronic beats, independent artists, Phonk, Brazilian Funk, and lo-fi tracks.
-- **Unified & Provider-Specific Search:**
-  - Search across all sources simultaneously or filter specifically by **All Sources**, **JioSaavn**, or **Audius**.
-  - Quick trending search tags (*Hangover*, *Dhurandhar*, *Phonk*, *Top Hindi Hits*).
-- **Background Playback & Audio Controls:**
-  - Powered by `just_audio` and `audio_service`.
-  - Notification bar playback controls, lock-screen media controls, and headset button integration.
-  - Audio focus & phone call ducking/interruption management with `audio_session`.
-- **Playback Capabilities:**
-  - Smart queue management (play next, drag-and-drop reorder, clear queue).
-  - Sleep timer with countdown notifications.
+- **YouTube Music & Video Catalog:**
+  - YouTube search with instant results and automatic deduplication.
+  - Built-in curated playlists and category discovery.
+  - Video title and artist normalization with smart recommendations.
+- **Embedded YouTube IFrame Playback:**
+  - Official YouTube IFrame Player integration via `webview_flutter`.
+  - Full player controls: Play, Pause, Seek, Duration, and Buffering indicators.
+  - Smart queue management (Next up, reorder, auto-advance).
   - Repeat modes (Off / One / All) & Shuffle.
+  - Sleep timer with countdown notifications.
 - **Personal Library & Offline Persistence:**
   - Favorites and recently played track history persisted via `shared_preferences`.
   - Custom playlists creation and management.
 - **Aesthetic Dark UI:**
-  - Glassmorphic accents, animated equalizers, high-resolution 500x500 album art, and provider badges (`Saavn 320k` & `Audius`).
+  - Glassmorphic accents, animated equalizers, high-resolution album/video thumbnails.
+  - Mini player and immersive full-screen Now Playing view.
 
 ---
 
@@ -57,15 +54,18 @@ A personal, modern dark music streaming application built with **Flutter**, feat
    ```bash
    flutter build apk --release
    ```
-   The APK will be generated at `build/app/outputs/flutter-apk/app-release.apk`.
+   Or build architecture-split APKs:
+   ```bash
+   flutter build apk --split-per-abi
+   ```
 
-----
+---
 
 ## 🛠️ Tech Stack & Architecture
 
 - **Framework:** Flutter / Dart
-- **Audio Engine:** `just_audio`, `audio_service`, `audio_session`
-- **Catalog & APIs:** `saavn_play`, `dart_des`, `http`
+- **Playback Engine:** Official YouTube IFrame Player API (`webview_flutter`)
+- **Networking & API:** `http`
 - **State Management:** `provider`
 - **Local Persistence:** `shared_preferences`
 - **Image Caching:** `cached_network_image`
@@ -79,8 +79,13 @@ Run the test suite:
 flutter test
 ```
 
+Run static analysis:
+```bash
+flutter analyze
+```
+
 ---
 
-## 📄 License
+## ⚠️ Policy & Disclaimer
 
-This project is licensed for personal and educational use.
+GoTune operates strictly through the official embedded YouTube IFrame Player. It does not extract direct audio streams, bypass DRM, download copyrighted content, or circumvent YouTube playback and advertising policies.

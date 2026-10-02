@@ -1,30 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/track.dart';
-import '../providers/audio_player_provider.dart';
+import '../providers/unified_playback_controller.dart';
 import '../providers/library_provider.dart';
 import '../theme/app_colors.dart';
 import 'add_to_playlist_sheet.dart';
 import 'animated_equalizer.dart';
 import 'network_artwork.dart';
+import 'song_action_sheet.dart';
 
 /// Reusable track row with artwork, animated equalizer for active track,
 /// duration, quick favorite toggle, and context options for playlist and queue operations.
 class TrackTile extends StatelessWidget {
   final Track track;
   final List<Track>? queue;
+  final List<Track>? playlist;
+  final int? index;
   final VoidCallback? onTap;
 
   const TrackTile({
     super.key,
     required this.track,
     this.queue,
+    this.playlist,
+    this.index,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final playerProvider = context.watch<AudioPlayerProvider>();
+    final playerProvider = context.watch<UnifiedPlaybackController>();
     final libraryProvider = context.watch<LibraryProvider>();
 
     final isCurrent = playerProvider.currentTrack?.id == track.id;
@@ -34,17 +39,23 @@ class TrackTile extends StatelessWidget {
     return InkWell(
       onTap: onTap ??
           () {
-            if (queue != null && queue!.isNotEmpty) {
-              playerProvider.playTrack(track, playlist: queue);
+            final effectiveList = playlist ?? queue;
+            if (effectiveList != null && effectiveList.isNotEmpty) {
+              playerProvider.playTrack(
+                track,
+                playlist: effectiveList,
+                initialIndex: index,
+              );
             } else {
               playerProvider.playWithSmartRadio(track);
             }
           },
       borderRadius: BorderRadius.circular(12),
+      onLongPress: () => SongActionSheet.show(context, track),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isCurrent ? AppColors.primary.withOpacity(0.08) : Colors.transparent,
+          color: isCurrent ? AppColors.primary.withValues(alpha: 0.08) : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
@@ -63,7 +74,7 @@ class TrackTile extends StatelessWidget {
                     width: 50,
                     height: 50,
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.55),
+                      color: Colors.black.withValues(alpha: 0.55),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Center(
@@ -131,42 +142,6 @@ class TrackTile extends StatelessWidget {
                           ),
                         ),
                       ],
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: track.provider == 'saavn'
-                              ? const Color(0xFF00D2C4).withOpacity(0.15)
-                              : track.provider == 'youtube'
-                                  ? const Color(0xFFFF2A2A).withOpacity(0.15)
-                                  : AppColors.primary.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: track.provider == 'saavn'
-                                ? const Color(0xFF00D2C4).withOpacity(0.3)
-                                : track.provider == 'youtube'
-                                    ? const Color(0xFFFF2A2A).withOpacity(0.3)
-                                    : AppColors.primary.withOpacity(0.3),
-                            width: 0.8,
-                          ),
-                        ),
-                        child: Text(
-                          track.provider == 'saavn'
-                              ? 'Saavn 320k'
-                              : track.provider == 'youtube'
-                                  ? 'YouTube'
-                                  : 'Audius',
-                          style: TextStyle(
-                            color: track.provider == 'saavn'
-                                ? const Color(0xFF00E5D5)
-                                : track.provider == 'youtube'
-                                    ? const Color(0xFFFF4B4B)
-                                    : AppColors.primaryLight,
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ],
@@ -220,9 +195,32 @@ class TrackTile extends StatelessWidget {
                   case 'favorite':
                     libraryProvider.toggleFavorite(track);
                     break;
+                  case 'radio':
+                    playerProvider.playWithSmartRadio(track);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Starting radio for "${track.title}"'),
+                        backgroundColor: AppColors.surfaceElevated,
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                    break;
+                  case 'details':
+                    SongActionSheet.show(context, track);
+                    break;
                 }
               },
               itemBuilder: (ctx) => [
+                const PopupMenuItem(
+                  value: 'radio',
+                  child: Row(
+                    children: [
+                      Icon(Icons.radio_rounded, color: AppColors.accentBlue, size: 20),
+                      SizedBox(width: 12),
+                      Text('Start Radio', style: TextStyle(color: AppColors.textPrimary, fontSize: 13.5)),
+                    ],
+                  ),
+                ),
                 const PopupMenuItem(
                   value: 'add_playlist',
                   child: Row(
@@ -267,6 +265,16 @@ class TrackTile extends StatelessWidget {
                         isFav ? 'Remove Favorite' : 'Favorite',
                         style: const TextStyle(color: AppColors.textPrimary, fontSize: 13.5),
                       ),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'details',
+                  child: Row(
+                    children: [
+                      Icon(Icons.more_horiz_rounded, color: AppColors.textSecondary, size: 20),
+                      SizedBox(width: 12),
+                      Text('More Options...', style: TextStyle(color: AppColors.textPrimary, fontSize: 13.5)),
                     ],
                   ),
                 ),

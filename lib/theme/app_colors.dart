@@ -19,6 +19,8 @@ class AppColors {
   static const Color secondary = Color(0xFF00D2C4); // Neon Teal
   static const Color secondaryLight = Color(0xFF22D3EE);
 
+  static const Color accentBlue = primary;
+  static const Color accentBlueLight = primaryLight;
   static const Color accentPink = Color(0xFFEC4899);
   static const Color accentGreen = Color(0xFF10B981);
   static const Color accentAmber = Color(0xFFF59E0B);

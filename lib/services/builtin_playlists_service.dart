@@ -1,9 +1,8 @@
 import '../models/playlist.dart';
 import '../models/track.dart';
-import '../models/track_stream_info.dart';
 
 /// Provides curated built-in playlists that are immediately playable,
-/// featuring rich covers and instant streaming across YouTube and JioSaavn.
+/// featuring rich covers and instant streaming via YouTube IFrame Player.
 class BuiltinPlaylistsService {
   static final List<Playlist> _builtinPlaylists = [
     // 1. Featured Daily Mix: After Dark
@@ -24,7 +23,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 259,
           genre: 'Electronic',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: 'waAlgFq9Xq8',
         ),
         const Track(
           id: 'yt_8GW6sLrK40k',
@@ -36,7 +35,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 212,
           genre: 'Electronic',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: '8GW6sLrK40k',
         ),
         const Track(
           id: 'yt_MV_3Dpw-BRY',
@@ -48,7 +47,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 259,
           genre: 'Electronic',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: 'MV_3Dpw-BRY',
         ),
         const Track(
           id: 'yt_34Na4j8AVgA',
@@ -60,7 +59,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 230,
           genre: 'Electronic',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: '34Na4j8AVgA',
         ),
       ],
     ),
@@ -83,7 +82,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 320,
           genre: 'Pop',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: '0wPhbmeNSOs',
         ),
         const Track(
           id: 'yt_U3ASj1L6_sY',
@@ -95,7 +94,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 224,
           genre: 'Pop',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: 'U3ASj1L6_sY',
         ),
         const Track(
           id: 'yt_4NRXx6U8ABQ',
@@ -107,7 +106,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 200,
           genre: 'Pop',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: '4NRXx6U8ABQ',
         ),
         const Track(
           id: 'yt_ic8j13piAhQ',
@@ -119,7 +118,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 178,
           genre: 'Pop',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: 'ic8j13piAhQ',
         ),
       ],
     ),
@@ -128,7 +127,7 @@ class BuiltinPlaylistsService {
     Playlist(
       id: 'builtin_bollywood',
       name: 'Bollywood Top Hits',
-      description: 'Soulful melodies and romantic chartbusters in 320kbps',
+      description: 'Soulful melodies and romantic chartbusters',
       createdAt: DateTime(2024, 1, 1),
       updatedAt: DateTime.now(),
       tracks: [
@@ -142,7 +141,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 268,
           genre: 'Bollywood',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: 'BddP6PYo2gs',
         ),
         const Track(
           id: 'yt_IJq0yyWug1k',
@@ -154,7 +153,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 262,
           genre: 'Bollywood',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: 'IJq0yyWug1k',
         ),
         const Track(
           id: 'yt_V1Z5W5k9P7g',
@@ -166,7 +165,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 200,
           genre: 'Bollywood',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: 'V1Z5W5k9P7g',
         ),
       ],
     ),
@@ -189,7 +188,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 180,
           genre: 'Focus',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: 'jfKfPfyJRdk',
         ),
         const Track(
           id: 'yt_2atQnvunGCo',
@@ -201,7 +200,7 @@ class BuiltinPlaylistsService {
           durationSeconds: 485,
           genre: 'Focus',
           provider: 'youtube',
-          streamInfo: TrackStreamInfo(isStreamable: true),
+          youtubeVideoId: '2atQnvunGCo',
         ),
       ],
     ),

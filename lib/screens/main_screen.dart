@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
-import '../widgets/mini_player.dart';
+import '../widgets/global_audio_player.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
 import 'search_screen.dart';
-import 'settings_screen.dart';
 
-/// Root screen managing primary navigation across Home, Search, Library, and Profile,
-/// with persistent floating MiniPlayer matching the Pulse dynamic aesthetic.
+/// Root screen managing primary navigation across Home, Explore/Search, and Library,
+/// with persistent floating MiniPlayer docked above the bottom bar.
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -29,36 +28,28 @@ class _MainScreenState extends State<MainScreen> {
     final screens = [
       HomeScreen(
         onSearchTapped: () => _switchTab(1),
-        onProfileTapped: () => _switchTab(3),
         onLibraryTapped: () => _switchTab(2),
       ),
       const SearchScreen(),
       LibraryScreen(onExploreTapped: () => _switchTab(0)),
-      const SettingsScreen(),
     ];
 
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
-          // Screen pages maintained in memory
+          // Screen pages maintained in memory.
+          // The persistent mini player is mounted once at application root
+          // (see GlobalAudioPlayer) so it survives route changes.
           Positioned.fill(
-            bottom: 70,
+            bottom: GlobalAudioPlayer.bottomBarHeight,
             child: IndexedStack(
               index: _currentIndex,
               children: screens,
             ),
           ),
 
-          // Persistent floating MiniPlayer docked above bottom bar
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 72,
-            child: MiniPlayer(),
-          ),
-
-          // Sleek custom Bottom Bar
+          // Sleek custom 3-tab Bottom Bar: Home, Explore/Search, Library
           Positioned(
             left: 0,
             right: 0,
@@ -81,14 +72,13 @@ class _MainScreenState extends State<MainScreen> {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildNavItem(0, 'Home', Icons.home_rounded),
-              _buildNavItem(1, 'Search', Icons.search_rounded),
+              _buildNavItem(1, 'Explore', Icons.explore_rounded),
               _buildNavItem(2, 'Library', Icons.library_music_rounded),
-              _buildNavItem(3, 'Profile', Icons.person_rounded),
             ],
           ),
         ),
@@ -104,7 +94,7 @@ class _MainScreenState extends State<MainScreen> {
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
         decoration: BoxDecoration(
           color: isActive ? AppColors.primarySoft : Colors.transparent,
           borderRadius: BorderRadius.circular(16),
@@ -115,7 +105,7 @@ class _MainScreenState extends State<MainScreen> {
             Icon(
               icon,
               color: isActive ? AppColors.primary : AppColors.textMuted,
-              size: 22,
+              size: 24,
             ),
             const SizedBox(height: 3),
             Text(

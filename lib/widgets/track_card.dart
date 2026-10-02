@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/track.dart';
-import '../providers/audio_player_provider.dart';
+import '../providers/unified_playback_controller.dart';
 import '../providers/library_provider.dart';
 import '../theme/app_colors.dart';
 import 'add_to_playlist_sheet.dart';
@@ -22,7 +22,7 @@ class TrackCard extends StatelessWidget {
   });
 
   void _showTrackMenu(BuildContext context) {
-    final playerProvider = context.read<AudioPlayerProvider>();
+    final playerProvider = context.read<UnifiedPlaybackController>();
     final libraryProvider = context.read<LibraryProvider>();
     final isFav = libraryProvider.isFavorite(track.id);
 
@@ -91,7 +91,7 @@ class TrackCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final playerProvider = context.watch<AudioPlayerProvider>();
+    final playerProvider = context.watch<UnifiedPlaybackController>();
     final isCurrent = playerProvider.currentTrack?.id == track.id;
     final isPlaying = isCurrent && playerProvider.isPlaying;
 
@@ -101,10 +101,18 @@ class TrackCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap ??
             () {
+              final isYoutubeCard = track.provider == 'youtube';
               if (queue != null && queue!.isNotEmpty) {
-                playerProvider.playTrack(track, playlist: queue);
+                playerProvider.playTrack(
+                  track,
+                  playlist: queue,
+                  isExplicitYoutubeSelection: isYoutubeCard,
+                );
               } else {
-                playerProvider.playWithSmartRadio(track);
+                playerProvider.playWithSmartRadio(
+                  track,
+                  isExplicitYoutubeSelection: isYoutubeCard,
+                );
               }
             },
         onLongPress: () => _showTrackMenu(context),
@@ -130,7 +138,7 @@ class TrackCard extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.65),
+                        color: Colors.black.withValues(alpha: 0.65),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
@@ -155,7 +163,7 @@ class TrackCard extends StatelessWidget {
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.primary.withOpacity(0.4),
+                          color: AppColors.primary.withValues(alpha: 0.4),
                           blurRadius: 8,
                           offset: const Offset(0, 3),
                         ),

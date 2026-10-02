@@ -226,9 +226,9 @@ class AddToPlaylistSheet extends StatelessWidget {
                               ? Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(
-                                    color: AppColors.accentGreen.withOpacity(0.15),
+                                    color: AppColors.accentGreen.withValues(alpha: 0.15),
                                     borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: AppColors.accentGreen.withOpacity(0.4)),
+                                    border: Border.all(color: AppColors.accentGreen.withValues(alpha: 0.4)),
                                   ),
                                   child: const Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -247,18 +247,16 @@ class AddToPlaylistSheet extends StatelessWidget {
                                   );
                                 }
                               : () async {
-                                  final success = await library.addTrackToPlaylist(playlist.id, track);
+                                  await library.addTrackToPlaylist(playlist.id, track);
                                   if (context.mounted) {
                                     Navigator.pop(context);
-                                    if (success) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text('Added to "${playlist.name}"'),
-                                          duration: const Duration(seconds: 2),
-                                          backgroundColor: AppColors.surfaceElevated,
-                                        ),
-                                      );
-                                    }
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Added to "${playlist.name}"'),
+                                        duration: const Duration(seconds: 2),
+                                        backgroundColor: AppColors.surfaceElevated,
+                                      ),
+                                    );
                                   }
                                 },
                         );

@@ -3,7 +3,7 @@ import 'local_storage_service.dart';
 
 /// Legacy adapter maintaining backwards-compatibility with [LocalStorageService].
 class StorageService extends LocalStorageService {
-  StorageService(SharedPreferences prefs) : super(prefs);
+  StorageService(super.prefs);
 
   static Future<StorageService> init() async {
     final prefs = await SharedPreferences.getInstance();

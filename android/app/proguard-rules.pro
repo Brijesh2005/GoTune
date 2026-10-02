@@ -7,9 +7,11 @@
 -keep class io.flutter.plugins.**  { *; }
 -dontwarn io.flutter.embedding.**
 
-# Audio Service and Just Audio plugins
--keep class com.ryanheise.audioservice.** { *; }
--keep class com.ryanheise.just_audio.** { *; }
--dontwarn com.ryanheise.audioservice.**
--dontwarn com.ryanheise.just_audio.**
+# WebView rules for YouTube IFrame Player
+-keepattributes JavascriptInterface
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+-keep class android.webkit.** { *; }
+
 -keepattributes *Annotation*

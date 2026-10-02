@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>GoTune YouTube Player Host</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000000;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+    }
+    #player {
+      width: 100%;
+      height: 100%;
+      min-width: 200px;
+      min-height: 200px;
+      border: 0;
+    }
+    /* Visible only until the IFrame API reports it is ready. */
+    #status {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #9aa0a6;
+      font: 13px -apple-system, Roboto, Arial, sans-serif;
+      background: #000000;
+      z-index: 2;
+    }
+    #status.hidden { display: none; }
+  </style>
+</head>
+<body>
+  <!--
+    GoTune YouTube IFrame host.
+
+    This document is the ONLY place the IFrame Player API is touched. Dart
+    never builds player JavaScript itself: it loads this file and calls the
+    window.* functions below, and receives structured messages through
+    window.flutter_webview.postMessage().
+
+    Player parameters intentionally exclude parameters YouTube documents as
+    removed/non-functional (modestbranding, showinfo, autohide, theme).
+  -->
+  <div id="status">Loading YouTube player…</div>
+  <div id="player"></div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // --- Bridge helpers ---------------------------------------------------
+
+      // Platform channel provided by webview_flutter on Android.
+      var bridge = (window.flutter_webview && window.flutter_webview.postMessage)
+        ? function (payload) { window.flutter_webview.postMessage(payload); }
+        : function () { /* host not attached yet */ };
+
+      var API_ORIGIN = (window.location && window.location.origin)
+        ? window.location.origin
+        : '';
+
+      var player = null;
+      var apiReady = false;
+      var pendingVideoId = null;
+      var pendingAutoplay = true;
+      var lastTimeSecond = -1;
+      var timeUpdateTimer = null;
+
+      /**
+       * Sends a structured event to Dart. Never throws, so a dying WebView can
+       * never take the player down with it.
+       */
+      function emit(type, extra) {
+        try {
+          var payload = { type: type };
+          if (extra) {
+            for (var key in extra) {
+              if (Object.prototype.hasOwnProperty.call(extra, key)) {
+                payload[key] = extra[key];
+              }
+            }
+          }
+          if (player && player.getVideoData) {
+            try {
+              var data = player.getVideoData();
+              payload.videoId = data && data.video_id ? data.video_id : undefined;
+            } catch (_) { /* player torn down mid-call */ }
+          }
+          bridge(payload);
+        } catch (e) {
+          if (window.console) window.console.log('[GoTuneYT] emit failed: ' + e);
+        }
+      }
+
+      function safeCurrentSeconds() {
+        try {
+          return player && player.getCurrentTime ? (player.getCurrentTime() || 0) : 0;
+        } catch (_) {
+          return 0;
+        }
+      }
+
+      function safeDurationSeconds() {
+        try {
+          return player && player.getDuration ? (player.getDuration() || 0) : 0;
+        } catch (_) {
+          return 0;
+        }
+      }
+
+      function safeVideoId() {
+        try {
+          var data = player && player.getVideoData ? player.getVideoData() : null;
+          return data && data.video_id ? data.video_id : null;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      // --- Player construction ---------------------------------------------
+
+      function buildPlayer(videoId, autoplay) {
+        player = new YT.Player('player', {
+          videoId: videoId || '',
+          playerVars: {
+            // Supported, currently-relevant parameters only.
+            playsinline: 1,   // inline playback on Android WebView
+            controls: 1,      // let listeners scrub/volume inside the player
+            // Mirror the requested intent: cued-only construction must not
+            // silently start playback before the listener asked for it.
+            autoplay: autoplay === false ? 0 : 1,
+            enablejsapi: 1,
+            rel: 0,           // related-videos behaviour, not branding
+            fs: 0,            // no fullscreen: GoTune owns the surface
+            iv_load_policy: 3,// show the thumbnail frame until play is requested
+            // Recommended security parameter. The page origin is whatever the
+            // WebView serves the local asset from (https://localhost by
+            // default), so it is read at runtime rather than hardcoded.
+            origin: API_ORIGIN
+          },
+          events: {
+            onReady: onPlayerReady,
+            onStateChange: onPlayerStateChange,
+            onError: onPlayerError,
+            // Registered here, which is the documented way to receive it;
+            // the prototype assignment in onYouTubeIframeAPIReady is kept as
+            // a belt-and-braces fallback for older API builds.
+            onAutoplayBlocked: onAutoplayBlocked
+          }
+        });
+      }
+
+      function onPlayerReady(event) {
+        apiReady = true;
+        var status = document.getElementById('status');
+        if (status) status.classList.add('hidden');
+
+        emit('ready', {
+          duration: safeDurationSeconds(),
+          position: safeCurrentSeconds(),
+          videoId: safeVideoId()
+        });
+
+        // Honour a load requested before the API finished booting.
+        if (pendingVideoId) {
+          var videoId = pendingVideoId;
+          var autoplay = pendingAutoplay;
+          pendingVideoId = null;
+          window.loadVideo(videoId, autoplay);
+        }
+      }
+
+      function onPlayerStateChange(event) {
+        var data = event.target.getPlayerState();
+
+        switch (data) {
+          case YT.PlayerState.UNSTARTED:
+            emit('unstarted', tick());
+            break;
+          case YT.PlayerState.CUED:
+            emit('cued', tick());
+            break;
+          case YT.PlayerState.BUFFERING:
+            emit('buffering', tick());
+            break;
+          case YT.PlayerState.PLAYING:
+            startTimeUpdates();
+            emit('playing', tick());
+            break;
+          case YT.PlayerState.PAUSED:
+            stopTimeUpdates();
+            emit('paused', tick());
+            break;
+          case YT.PlayerState.ENDED:
+            stopTimeUpdates();
+            emit('ended', tick());
+            break;
+          default:
+            break;
+        }
+      }
+
+      function onPlayerError(event) {
+        var code = event && typeof event.data === 'number' ? event.data : -1;
+        stopTimeUpdates();
+        emit('error', {
+          code: code,
+          position: safeCurrentSeconds(),
+          duration: safeDurationSeconds(),
+          videoId: safeVideoId()
+        });
+      }
+
+      function tick() {
+        return {
+          position: safeCurrentSeconds(),
+          duration: safeDurationSeconds()
+        };
+      }
+
+      // --- Position reporting ----------------------------------------------
+      // The IFrame API has no "time changed" event, so while playing we poll
+      // once a second and emit a timeUpdate. Dart's scrubbing UI is driven by
+      // these events, so no Flutter timer competes with the player.
+
+      function startTimeUpdates() {
+        if (timeUpdateTimer !== null) return;
+        lastTimeSecond = -1;
+        timeUpdateTimer = window.setInterval(function () {
+          var current = safeCurrentSeconds();
+          var whole = Math.floor(current);
+          if (whole !== lastTimeSecond) {
+            lastTimeSecond = whole;
+            emit('timeUpdate', tick());
+          }
+        }, 1000);
+      }
+
+      function stopTimeUpdates() {
+        if (timeUpdateTimer !== null) {
+          window.clearInterval(timeUpdateTimer);
+          timeUpdateTimer = null;
+        }
+      }
+
+      // --- Commands exposed to Dart ---------------------------------------
+
+      window.isApiReady = function () { return apiReady; };
+
+      /** Creates the player, reusing the existing one when possible. */
+      window.createPlayer = function (videoId, autoplay) {
+        if (!apiReady) {
+          pendingVideoId = videoId;
+          pendingAutoplay = autoplay !== false;
+          return false;
+        }
+        if (!player || typeof player.loadVideoById !== 'function') {
+          buildPlayer(videoId, autoplay);
+        } else {
+          window.loadVideo(videoId, autoplay);
+        }
+        return true;
+      };
+
+      /** Loads a video into the SAME player instance (no iframe recreation). */
+      window.loadVideo = function (videoId, autoplay) {
+        if (!player || typeof player.loadVideoById !== 'function') {
+          return window.createPlayer(videoId, autoplay);
+        }
+        try {
+          if (autoplay === false) {
+            // Cue only: playback waits for an explicit user gesture.
+            player.cueVideoById(videoId);
+          } else {
+            player.loadVideoById(videoId);
+          }
+          lastTimeSecond = -1;
+          emit('cued', { videoId: videoId });
+        } catch (e) {
+          emit('error', { code: -1, message: String(e) });
+        }
+        return true;
+      };
+
+      /**
+       * Starts playback for a listener-initiated play.
+       *
+       * Browsers only permit this inside a real user gesture, which is exactly
+       * what the Dart "tap to play" affordance provides.
+       */
+      window.playVideo = function () {
+        if (player && typeof player.playVideo === 'function') player.playVideo();
+      };
+
+      /**
+       * Loads a video and starts it in one step, for use right after a gesture.
+       */
+      window.loadAndPlayVideo = function (videoId) {
+        if (!player || typeof player.loadVideoById !== 'function') {
+          pendingVideoId = videoId;
+          pendingAutoplay = true;
+          return window.createPlayer(videoId, true);
+        }
+        player.loadVideoById(videoId);
+        lastTimeSecond = -1;
+        return true;
+      };
+
+      window.pauseVideo = function () {
+        if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
+      };
+
+      window.seekTo = function (seconds) {
+        if (player && typeof player.seekTo === 'function') {
+          player.seekTo(Number(seconds) || 0, true);
+        }
+      };
+
+      window.stopVideo = function () {
+        stopTimeUpdates();
+        if (player && typeof player.stopVideo === 'function') player.stopVideo();
+      };
+
+      window.setVolume = function (volume) {
+        if (player && typeof player.setVolume === 'function') {
+          player.setVolume(Number(volume) || 0);
+        }
+      };
+
+      window.getCurrentTime = function () { return safeCurrentSeconds(); };
+
+      window.getDuration = function () { return safeDurationSeconds(); };
+
+      window.getCurrentVideoId = function () { return safeVideoId(); };
+
+      /**
+       * The IFrame API exposes `onAutoplayBlocked` only after we opt in by
+       * overriding the callback name before the API boots. Dart treats this as
+       * "ask the listener to tap play" instead of retrying automatically.
+       */
+      window.onYouTubeIframeAPIReady = function () {
+        if (window.YT && YT.Player) {
+          YT.Player.prototype.onAutoplayBlocked = onAutoplayBlocked;
+        }
+      };
+
+      function onAutoplayBlocked() {
+        emit('autoplayBlocked', tick());
+      }
+
+      // Load the official IFrame API. `onYouTubeIframeAPIReady` above runs
+      // immediately after YT is available.
+      if (window.YT && YT.Player) {
+        window.onYouTubeIframeAPIReady();
+      } else {
+        var tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        tag.async = true;
+        document.head.appendChild(tag);
+      }
+    })();
+  </script>
+</body>
+</html>

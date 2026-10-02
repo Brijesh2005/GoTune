@@ -1,16 +1,17 @@
 import 'dart:math';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import '../models/interaction_event.dart';
+import '../models/recommendation.dart';
 import '../models/track.dart';
 import '../repositories/track_repository.dart';
 
-/// Intelligent Music Recommendation and Radio Queue Algorithm inspired by
-/// YouTube Music, Spotify Radio, and Instagram Reels audio engines.
-///
-/// Given a seed track, this algorithm:
-/// 1. Extracts the clean artist, title, and genre/mood cues.
-/// 2. Queries related artist clusters, same-artist non-duplicate hits, and YouTube Music radio vectors.
-/// 3. Strictly filters out duplicate/cover versions of the searched song title.
-/// 4. Interleaves and randomizes recommendations with genre-affinity weighting for seamless playback.
+enum RadioType { song, artist, album, genre, mood }
+
+/// GoTune Personal Recommendation Engine
+/// Independent local recommendation engine using deterministic mathematical ranking,
+/// interaction event tracking (plays, skips, completions, likes, search),
+/// weighted signal scoring, artist diversity caps, and dynamic radio queues.
+/// Does NOT use remote AI/ML models or heavy tensors, ensuring lightweight and fast execution.
 class MusicAlgorithmService {
   final TrackRepository _repository;
   final Random _random = Random();
@@ -18,9 +19,8 @@ class MusicAlgorithmService {
   MusicAlgorithmService({required TrackRepository repository})
       : _repository = repository;
 
-  // Genre & Artist clustering matrix (Instagram / YouTube Music style)
+  // Curated genre & artist affinity matrix for intelligent candidate clustering
   static const Map<String, List<String>> _genreArtistClusters = {
-    // Soulful Pop / Ballads
     'pop_soul': [
       'Adele',
       'Sam Smith',
@@ -35,7 +35,6 @@ class MusicAlgorithmService {
       'Sia',
       'John Legend',
     ],
-    // Bollywood Romantic / Acoustic / Melody
     'bollywood_romance': [
       'Arijit Singh',
       'Atif Aslam',
@@ -50,7 +49,6 @@ class MusicAlgorithmService {
       'KK',
       'Sonu Nigam',
     ],
-    // Punjabi / Desi Hip-Hop & Pop
     'punjabi_desi': [
       'Sidhu Moose Wala',
       'Karan Aujla',
@@ -63,7 +61,6 @@ class MusicAlgorithmService {
       'Divine',
       'MC Stan',
     ],
-    // Synthwave / R&B / Modern Pop
     'synth_rnb': [
       'The Weeknd',
       'Dua Lipa',
@@ -75,7 +72,6 @@ class MusicAlgorithmService {
       'Harry Styles',
       'Post Malone',
     ],
-    // Hip-Hop / Rap
     'hiphop_rap': [
       'Drake',
       'Kendrick Lamar',
@@ -87,7 +83,6 @@ class MusicAlgorithmService {
       'Future',
       'Juice WRLD',
     ],
-    // EDM / Dance
     'edm_dance': [
       'Avicii',
       'Martin Garrix',
@@ -100,7 +95,6 @@ class MusicAlgorithmService {
       'Zedd',
       'Tiësto',
     ],
-    // Phonk / Drift / Bass
     'phonk': [
       'Kordhell',
       'Hensonn',
@@ -110,7 +104,6 @@ class MusicAlgorithmService {
       'Pharmacist',
       'Playaphonk',
     ],
-    // Lo-Fi / Chill / Study
     'lofi': [
       'Kijugo',
       'potsu',
@@ -120,7 +113,6 @@ class MusicAlgorithmService {
       'lofi fruits',
       'ChilledCow',
     ],
-    // Rock / Alternative / Indie
     'rock_alt': [
       'Imagine Dragons',
       'Arctic Monkeys',
@@ -131,160 +123,633 @@ class MusicAlgorithmService {
       'Twenty One Pilots',
       'The 1975',
     ],
-    // K-Pop
-    'kpop': [
-      'BTS',
-      'BLACKPINK',
-      'NewJeans',
-      'Stray Kids',
-      'TWICE',
-      'FIFTY FIFTY',
-      'LE SSERAFIM',
-    ],
   };
 
-  /// Generates a smart radio queue seeded by [seedTrack].
-  /// Guaranteed NOT to be a wall of search-result duplicates of the same song title.
-  Future<List<Track>> generateRadioQueue(
-    Track seedTrack, {
-    int targetCount = 14,
-    Set<String>? excludedTrackIds,
-  }) async {
-    final cleanArt = cleanArtist(seedTrack.artist);
-    final cleanTit = cleanTitle(seedTrack.title);
-    final excludedIds = Set<String>.from(excludedTrackIds ?? {})..add(seedTrack.id);
+  // ==========================================
+  // MATHEMATICAL SCORING ENGINE
+  // ==========================================
 
-    try {
-      // Find related sibling artists
-      final siblingArtists = getSiblingArtists(cleanArt, seedTrack.genre);
-      final chosenSiblings = List<String>.from(siblingArtists)..shuffle(_random);
-      final siblingA = chosenSiblings.isNotEmpty ? chosenSiblings[0] : null;
-      final siblingB = chosenSiblings.length > 1 ? chosenSiblings[1] : null;
+  /// Computes deterministic recommendation score using specified weighted signals:
+  /// score = 0.25 * artistAffinity
+  ///       + 0.20 * genreAffinity
+  ///       + 0.15 * recentInterest
+  ///       + 0.15 * favoriteAffinity
+  ///       + 0.10 * popularity
+  ///       + 0.10 * similarity
+  ///       + 0.05 * exploration
+  double calculateScore({
+    required Track candidate,
+    required List<Track> history,
+    required List<Track> favorites,
+    Track? seedTrack,
+    UserInteractionStats? stats,
+    double artistWeight = 0.25,
+    double genreWeight = 0.20,
+    double recentWeight = 0.15,
+    double favoriteWeight = 0.15,
+    double popularityWeight = 0.10,
+    double similarityWeight = 0.10,
+    double explorationWeight = 0.05,
+  }) {
+    final artistAffinity = _computeArtistAffinity(candidate, history, favorites, stats);
+    final genreAffinity = _computeGenreAffinity(candidate, history, favorites, stats);
+    final recentInterest = _computeRecentInterest(candidate, history);
+    final favoriteAffinity = _computeFavoriteAffinity(candidate, favorites);
+    final popularity = _computePopularity(candidate);
+    final similarity = seedTrack != null ? _computeSimilarity(candidate, seedTrack) : 0.5;
+    final exploration = _computeExploration(candidate, history);
 
-      // Concurrent multi-vector queries:
-      // Vector 1: Same artist other hits (excluding current song title)
-      // Vector 2: Primary sibling artist hits
-      // Vector 3: Secondary sibling or genre radio mix
-      // Vector 4: YouTube Music radio queue for this seed track
-      final queries = <Future<List<Track>>>[
-        _repository.searchTracks('$cleanArt top hits', limit: 8, provider: 'all').catchError((_) => <Track>[]),
-        if (siblingA != null)
-          _repository.searchTracks('$siblingA best songs', limit: 8, provider: 'all').catchError((_) => <Track>[]),
-        if (siblingB != null)
-          _repository.searchTracks('$siblingB hits', limit: 6, provider: 'all').catchError((_) => <Track>[])
-        else
-          _repository.searchTracks('${seedTrack.genre} trending', limit: 6, provider: 'all').catchError((_) => <Track>[]),
-        _repository.searchTracks('$cleanArt - $cleanTit radio mix', limit: 10, provider: 'youtube').catchError((_) => <Track>[]),
-      ];
+    // Apply exact configurable weights
+    double score = (artistWeight * artistAffinity) +
+        (genreWeight * genreAffinity) +
+        (recentWeight * recentInterest) +
+        (favoriteWeight * favoriteAffinity) +
+        (popularityWeight * popularity) +
+        (similarityWeight * similarity) +
+        (explorationWeight * exploration);
 
-      final results = await Future.wait(queries);
-
-      final sameArtistPool = <Track>[];
-      final siblingArtistPool = <Track>[];
-      final radioMixPool = <Track>[];
-
-      // Process Vector 1: Same artist pool
-      if (results.isNotEmpty) {
-        for (final t in results[0]) {
-          if (_isSameSongTitle(cleanTit, cleanTitle(t.title))) continue; // Exclude duplicate song!
-          if (excludedIds.contains(t.id)) continue;
-          if (_isReasonableDuration(t)) {
-            sameArtistPool.add(t);
-          }
-        }
-      }
-
-      // Process Vector 2 & 3: Sibling artist pools
-      final siblingResults = results.length > 1 ? results.sublist(1, results.length - 1) : <List<Track>>[];
-      for (final list in siblingResults) {
-        for (final t in list) {
-          if (_isSameSongTitle(cleanTit, cleanTitle(t.title))) continue;
-          if (excludedIds.contains(t.id)) continue;
-          if (_isReasonableDuration(t)) {
-            siblingArtistPool.add(t);
-          }
-        }
-      }
-
-      // Process Vector 4: YouTube Radio mix
-      if (results.isNotEmpty) {
-        for (final t in results.last) {
-          if (_isSameSongTitle(cleanTit, cleanTitle(t.title))) continue;
-          if (excludedIds.contains(t.id)) continue;
-          if (_isReasonableDuration(t)) {
-            radioMixPool.add(t);
-          }
-        }
-      }
-
-      // Shuffle pools for freshness
-      sameArtistPool.shuffle(_random);
-      siblingArtistPool.shuffle(_random);
-      radioMixPool.shuffle(_random);
-
-      // Synthesize interleaved queue with artist diversity limits
-      final curated = <Track>[];
-      final seenNormalizedTitles = <String>{_normalizeString(cleanTit)};
-      final artistTrackCount = <String, int>{
-        cleanArt.toLowerCase(): 1, // seed track counts as 1
-      };
-
-      void tryAddTrack(Track candidate) {
-        if (curated.length >= targetCount) return;
-        if (excludedIds.contains(candidate.id)) return;
-
-        final normTitle = _normalizeString(cleanTitle(candidate.title));
-        if (seenNormalizedTitles.contains(normTitle)) return;
-
-        final artKey = cleanArtist(candidate.artist).toLowerCase();
-        final currentCount = artistTrackCount[artKey] ?? 0;
-        // At most 2 tracks per artist in this queue window to preserve diversity
-        if (currentCount >= 2) return;
-
-        seenNormalizedTitles.add(normTitle);
-        artistTrackCount[artKey] = currentCount + 1;
-        excludedIds.add(candidate.id);
-        curated.add(candidate);
-      }
-
-      // Interleave: Sibling -> Same Artist -> Radio Mix -> Sibling -> ...
-      int sIdx = 0, aIdx = 0, rIdx = 0;
-      while (curated.length < targetCount &&
-          (sIdx < siblingArtistPool.length || aIdx < sameArtistPool.length || rIdx < radioMixPool.length)) {
-        if (sIdx < siblingArtistPool.length) {
-          tryAddTrack(siblingArtistPool[sIdx++]);
-        }
-        if (aIdx < sameArtistPool.length) {
-          tryAddTrack(sameArtistPool[aIdx++]);
-        }
-        if (rIdx < radioMixPool.length) {
-          tryAddTrack(radioMixPool[rIdx++]);
-        }
-      }
-
-      // If still under target, relax artist cap to fill out queue
-      final remainingPool = [...siblingArtistPool, ...sameArtistPool, ...radioMixPool]..shuffle(_random);
-      for (final t in remainingPool) {
-        if (curated.length >= targetCount) break;
-        if (!excludedIds.contains(t.id)) {
-          final norm = _normalizeString(cleanTitle(t.title));
-          if (!seenNormalizedTitles.contains(norm)) {
-            seenNormalizedTitles.add(norm);
-            excludedIds.add(t.id);
-            curated.add(t);
-          }
-        }
-      }
-
-      debugPrint('[MusicAlgorithmService] Generated ${curated.length} smart radio tracks for seed "${seedTrack.title}" by ${seedTrack.artist}');
-      return curated;
-    } catch (e) {
-      debugPrint('[MusicAlgorithmService] generateRadioQueue error: $e');
-      return [];
+    // Factor in user completion vs skip rate signals if available
+    if (stats != null) {
+      final completionRate = stats.getTrackCompletionRate(candidate.id);
+      final skipRate = stats.getTrackSkipRate(candidate.id);
+      score = score * (0.85 + 0.15 * completionRate) * (1.0 - 0.4 * skipRate);
     }
+
+    return score.clamp(0.0, 1.0);
   }
 
-  /// Cleans artist name by stripping collaborations, featured tags, and punctuation.
+  double _computeArtistAffinity(
+    Track candidate,
+    List<Track> history,
+    List<Track> favorites,
+    UserInteractionStats? stats,
+  ) {
+    if (history.isEmpty && favorites.isEmpty && stats == null) return 0.5;
+    final targetArtist = cleanArtist(candidate.artist).toLowerCase();
+
+    int matches = 0;
+    for (final t in history) {
+      if (cleanArtist(t.artist).toLowerCase() == targetArtist) matches += 2;
+    }
+    for (final t in favorites) {
+      if (cleanArtist(t.artist).toLowerCase() == targetArtist) matches += 3;
+    }
+    if (stats != null) {
+      final plays = stats.artistPlayCounts[candidate.artist] ?? 0;
+      final skips = stats.artistSkipCounts[candidate.artist] ?? 0;
+      matches += (plays * 2 - skips).clamp(0, 50);
+    }
+
+    final totalInteractions = max(1, history.length * 2 + favorites.length * 3);
+    return (matches / totalInteractions).clamp(0.0, 1.0);
+  }
+
+  double _computeGenreAffinity(
+    Track candidate,
+    List<Track> history,
+    List<Track> favorites,
+    UserInteractionStats? stats,
+  ) {
+    if (history.isEmpty && favorites.isEmpty && stats == null) return 0.5;
+    final targetGenre = candidate.genre.toLowerCase();
+
+    int matches = 0;
+    for (final t in history) {
+      if (t.genre.toLowerCase() == targetGenre) matches++;
+    }
+    for (final t in favorites) {
+      if (t.genre.toLowerCase() == targetGenre) matches += 2;
+    }
+    if (stats != null) {
+      final gPlays = stats.genrePlayCounts[candidate.genre] ?? 0;
+      matches += gPlays.clamp(0, 30);
+    }
+
+    final total = max(1, history.length + favorites.length * 2);
+    return (matches / total).clamp(0.0, 1.0);
+  }
+
+  double _computeRecentInterest(Track candidate, List<Track> history) {
+    if (history.isEmpty) return 0.0;
+    final targetArtist = cleanArtist(candidate.artist).toLowerCase();
+    final recents = history.take(10).toList();
+
+    for (int i = 0; i < recents.length; i++) {
+      if (cleanArtist(recents[i].artist).toLowerCase() == targetArtist) {
+        return (1.0 - (i / recents.length)).clamp(0.0, 1.0);
+      }
+    }
+    return 0.1;
+  }
+
+  double _computeFavoriteAffinity(Track candidate, List<Track> favorites) {
+    if (favorites.isEmpty) return 0.0;
+    final targetArtist = cleanArtist(candidate.artist).toLowerCase();
+
+    if (favorites.any((t) => t.id == candidate.id)) {
+      return 1.0;
+    }
+    if (favorites.any((t) => cleanArtist(t.artist).toLowerCase() == targetArtist)) {
+      return 0.7;
+    }
+    return 0.0;
+  }
+
+  double _computePopularity(Track candidate) {
+    final count = candidate.playCount ?? 0;
+    if (count <= 0) return 0.4;
+    final logPlay = (log(count) / ln10).clamp(0.0, 7.0);
+    return (logPlay / 7.0).clamp(0.2, 1.0);
+  }
+
+  double _computeSimilarity(Track candidate, Track seedTrack) {
+    final candArt = cleanArtist(candidate.artist).toLowerCase();
+    final seedArt = cleanArtist(seedTrack.artist).toLowerCase();
+
+    if (candArt == seedArt) return 0.9;
+
+    // Check sibling cluster match
+    final siblings = getSiblingArtists(seedTrack.artist, seedTrack.genre);
+    if (siblings.any((s) => s.toLowerCase() == candArt)) {
+      return 0.8;
+    }
+
+    if (candidate.genre.toLowerCase() == seedTrack.genre.toLowerCase()) {
+      return 0.6;
+    }
+    return 0.2;
+  }
+
+  double _computeExploration(Track candidate, List<Track> history) {
+    if (history.isEmpty) return 1.0;
+    final candArt = cleanArtist(candidate.artist).toLowerCase();
+    final hasListened = history.any((t) => cleanArtist(t.artist).toLowerCase() == candArt);
+    return hasListened ? 0.1 : 0.9;
+  }
+
+  // ==========================================
+  // RECOMMENDATION API
+  // ==========================================
+
+  /// Returns recommended tracks tailored for the user with artist diversity caps.
+  ///
+  /// Pure ranking: the caller supplies [catalogPool]. This engine never queries
+  /// a catalog itself, which keeps discovery and ranking independently testable
+  /// and prevents a single provider from owning the recommendation pipeline.
+  Future<List<Track>> getRecommendedForYou({
+    required List<Track> history,
+    required List<Track> favorites,
+    List<Track>? catalogPool,
+    int limit = 15,
+  }) async {
+    final pool = List<Track>.from(catalogPool ?? []);
+    if (pool.isEmpty) return const [];
+
+    final stats = _repository.storageService.getInteractionStats();
+
+    // Filter recently skipped songs
+    final skippedIds = stats.recentSkippedTrackIds.toSet();
+    final candidates = pool.where((t) => !skippedIds.contains(t.id)).toList();
+
+    return _rankTracksWithDiversity(
+      candidates: candidates.isNotEmpty ? candidates : pool,
+      history: history,
+      favorites: favorites,
+      stats: stats,
+      limit: limit,
+      maxPerArtist: 2,
+    );
+  }
+
+  /// Returns quick picks: familiar favorites and high completion songs.
+  List<Track> getQuickPicks({
+    required List<Track> history,
+    required List<Track> favorites,
+    int limit = 8,
+  }) {
+    final combined = <Track>[...favorites, ...history];
+    return Track.deduplicate(combined).take(limit).toList();
+  }
+
+  /// Returns most played tracks based on user interaction statistics.
+  List<Track> getMostPlayed({
+    required List<Track> history,
+    required List<Track> favorites,
+    int limit = 15,
+  }) {
+    final stats = _repository.storageService.getInteractionStats();
+    final combined = Track.deduplicate([...history, ...favorites]);
+
+    combined.sort((a, b) {
+      final countA = stats.songPlayCounts[a.id] ?? ((a.playCount ?? 0) > 0 ? 1 : 0);
+      final countB = stats.songPlayCounts[b.id] ?? ((b.playCount ?? 0) > 0 ? 1 : 0);
+      return countB.compareTo(countA);
+    });
+
+    return combined.take(limit).toList();
+  }
+
+  /// Returns on repeat tracks: tracks played frequently and recently.
+  List<Track> getOnRepeat({
+    required List<Track> history,
+    int limit = 15,
+  }) {
+    final counts = <String, int>{};
+    for (final t in history) {
+      counts[t.id] = (counts[t.id] ?? 0) + 1;
+    }
+    final onRepeat = history.where((t) => (counts[t.id] ?? 0) >= 2).toList();
+    return Track.deduplicate(onRepeat).take(limit).toList();
+  }
+
+  /// Returns rediscover tracks: tracks played in the past but not recently.
+  List<Track> getRediscover({
+    required List<Track> history,
+    required List<Track> favorites,
+    int limit = 15,
+  }) {
+    if (history.length <= 5 && favorites.isEmpty) return [];
+    // Skip the most recent 10 tracks, take older history and favorites
+    final olderHistory = history.skip(min(10, history.length)).toList();
+    final candidates = Track.deduplicate([...olderHistory, ...favorites]);
+    candidates.shuffle(_random);
+    return candidates.take(limit).toList();
+  }
+
+  /// Returns recommended artists based on user interactions.
+  ///
+  /// Derived purely from what the user actually played or saved — this engine
+  /// never invents artist names, so every name shown here is one the user has a
+  /// real connection to and can be resolved by the catalog.
+  List<String> getRecommendedArtistNames({
+    required List<Track> history,
+    required List<Track> favorites,
+    int limit = 10,
+  }) {
+    final counts = <String, int>{};
+    for (final t in history) {
+      final art = cleanArtist(t.artist);
+      if (art.isNotEmpty && art != 'Unknown Artist') {
+        counts[art] = (counts[art] ?? 0) + 1;
+      }
+    }
+    for (final t in favorites) {
+      final art = cleanArtist(t.artist);
+      if (art.isNotEmpty && art != 'Unknown Artist') {
+        counts[art] = (counts[art] ?? 0) + 3;
+      }
+    }
+    if (counts.isEmpty) return const [];
+
+    final sorted = counts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.take(limit).map((e) => e.key).toList();
+  }
+
+  // ==========================================
+  // PERSONALIZED MIXES (LOCAL ENGINE)
+  // ==========================================
+
+  Future<List<PersonalizedMix>> generatePersonalizedMixes({
+    required List<Track> history,
+    required List<Track> favorites,
+    List<Track>? catalogPool,
+  }) async {
+    final pool = List<Track>.from(catalogPool ?? []);
+    if (pool.isEmpty) return const [];
+
+    final topArtist = _getTopArtist(history, favorites);
+
+    // 1. My Mix: Balanced personal mix with diversity
+    final myMixTracks = _rankTracksWithDiversity(
+      candidates: pool,
+      history: history,
+      favorites: favorites,
+      limit: 12,
+      maxPerArtist: 2,
+    );
+
+    // 2. Recent Mix: Focused heavily on recent history tracks
+    final recentMixTracks = _buildRecentMix(history, pool);
+
+    // 3. Favorites Mix: Favorite tracks combined with sibling artist hits
+    final favoritesMixTracks = _buildFavoritesMix(favorites, pool);
+
+    // 4. Discovery Mix: Higher exploration weight for discovering new sounds
+    final discoveryMixTracks = _buildDiscoveryMix(pool, history, favorites);
+
+    // 5. Artist Mix: Seeded with the user's top artist
+    final artistMixTracks = _buildArtistMix(topArtist, pool);
+
+    return [
+      PersonalizedMix(
+        id: 'my_mix',
+        title: 'My Mix',
+        subtitle: topArtist != null ? '$topArtist, and more' : 'Tailored for you',
+        description: 'Your continuous personal soundtrack updated daily',
+        gradientColors: const [Color(0xFFE50914), Color(0xFF6B0E1A)],
+        icon: Icons.auto_awesome_rounded,
+        tracks: myMixTracks.isNotEmpty ? myMixTracks : pool.take(8).toList(),
+      ),
+      PersonalizedMix(
+        id: 'recent_mix',
+        title: 'Recent Mix',
+        subtitle: 'Based on your recent listening',
+        description: 'Pick up where you left off with familiar hits',
+        gradientColors: const [Color(0xFF1DB954), Color(0xFF0F5A29)],
+        icon: Icons.history_rounded,
+        tracks: recentMixTracks.isNotEmpty ? recentMixTracks : pool.take(8).toList(),
+      ),
+      PersonalizedMix(
+        id: 'favorites_mix',
+        title: 'Favorites Mix',
+        subtitle: 'Your most loved songs',
+        description: 'Only your verified favorites and closest matches',
+        gradientColors: const [Color(0xFF9C27B0), Color(0xFF4A148C)],
+        icon: Icons.favorite_rounded,
+        tracks: favoritesMixTracks.isNotEmpty ? favoritesMixTracks : pool.take(8).toList(),
+      ),
+      PersonalizedMix(
+        id: 'discovery_mix',
+        title: 'Discovery Mix',
+        subtitle: 'Fresh sounds & new artists',
+        description: 'Step outside your usual rotation with exciting gems',
+        gradientColors: const [Color(0xFFFF9800), Color(0xFFB26A00)],
+        icon: Icons.explore_rounded,
+        tracks: discoveryMixTracks.isNotEmpty ? discoveryMixTracks : pool.take(8).toList(),
+      ),
+      PersonalizedMix(
+        id: 'artist_mix',
+        title: topArtist != null ? '$topArtist Mix' : 'Artist Spotlight',
+        subtitle: topArtist != null ? 'Best of $topArtist & similar' : 'Spotlight rotation',
+        description: 'Deep dive into your favorite artist and related sounds',
+        gradientColors: const [Color(0xFF00B0FF), Color(0xFF005B9F)],
+        icon: Icons.person_rounded,
+        tracks: artistMixTracks.isNotEmpty ? artistMixTracks : pool.take(8).toList(),
+      ),
+    ];
+  }
+
+  List<Track> _rankTracksWithDiversity({
+    required List<Track> candidates,
+    required List<Track> history,
+    required List<Track> favorites,
+    UserInteractionStats? stats,
+    Track? seedTrack,
+    int limit = 12,
+    int maxPerArtist = 2,
+    Map<String, int> existingArtistCounts = const {},
+    Set<String> skipFingerprints = const {},
+  }) {
+    if (limit <= 0 || candidates.isEmpty) return const [];
+
+    final scored = candidates.map((t) {
+      final s = calculateScore(
+        candidate: t,
+        history: history,
+        favorites: favorites,
+        seedTrack: seedTrack,
+        stats: stats,
+      );
+      return MapEntry(t, s);
+    }).toList();
+
+    scored.sort((a, b) => b.value.compareTo(a.value));
+
+    final artistCounts = <String, int>{...existingArtistCounts};
+    final seenFingerprints = <String>{...skipFingerprints};
+    final results = <Track>[];
+
+    for (final entry in scored) {
+      final track = entry.key;
+      final fp = track.normalizedFingerprint;
+      final primaryArt = cleanArtist(track.artist).toLowerCase();
+
+      if (seenFingerprints.contains(fp)) continue;
+      if ((artistCounts[primaryArt] ?? 0) >= maxPerArtist) continue;
+
+      seenFingerprints.add(fp);
+      artistCounts[primaryArt] = (artistCounts[primaryArt] ?? 0) + 1;
+      results.add(track);
+
+      if (results.length >= limit) break;
+    }
+
+    return results;
+  }
+
+  List<Track> _buildRecentMix(List<Track> history, List<Track> pool) {
+    if (history.isEmpty) return pool.take(10).toList();
+    final uniqueRecents = <String, Track>{};
+    for (final t in history) {
+      uniqueRecents.putIfAbsent(t.normalizedFingerprint, () => t);
+    }
+    return uniqueRecents.values.take(12).toList();
+  }
+
+  List<Track> _buildFavoritesMix(List<Track> favorites, List<Track> pool) {
+    if (favorites.isEmpty) return pool.take(10).toList();
+    final favList = List<Track>.from(favorites);
+    favList.shuffle(_random);
+    return favList.take(12).toList();
+  }
+
+  List<Track> _buildDiscoveryMix(List<Track> pool, List<Track> history, List<Track> favorites) {
+    final scored = pool.map((t) {
+      final expScore = _computeExploration(t, history);
+      final popScore = _computePopularity(t);
+      return MapEntry(t, (expScore * 0.7) + (popScore * 0.3));
+    }).toList();
+
+    scored.sort((a, b) => b.value.compareTo(a.value));
+    return scored.map((e) => e.key).take(12).toList();
+  }
+
+  List<Track> _buildArtistMix(String? topArtist, List<Track> pool) {
+    if (topArtist == null) return pool.take(10).toList();
+    final artLower = topArtist.toLowerCase();
+    final matching = pool.where((t) => t.artist.toLowerCase().contains(artLower)).toList();
+    final siblings = getSiblingArtists(topArtist, null);
+
+    final siblingTracks = pool.where((t) {
+      return siblings.any((s) => t.artist.toLowerCase().contains(s.toLowerCase()));
+    }).toList();
+
+    return [...matching, ...siblingTracks].take(12).toList();
+  }
+
+  String? _getTopArtist(List<Track> history, List<Track> favorites) {
+    final counts = <String, int>{};
+    for (final t in history) {
+      final art = cleanArtist(t.artist);
+      if (art.isNotEmpty && art != 'Unknown Artist') {
+        counts[art] = (counts[art] ?? 0) + 1;
+      }
+    }
+    for (final t in favorites) {
+      final art = cleanArtist(t.artist);
+      if (art.isNotEmpty && art != 'Unknown Artist') {
+        counts[art] = (counts[art] ?? 0) + 2;
+      }
+    }
+    if (counts.isEmpty) return null;
+    return counts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+  }
+
+  // ==========================================
+  // SMART RADIO (AUTOPLAY QUEUE)
+  // ==========================================
+
+  /// Ranks externally discovered [candidates] into a radio queue.
+  ///
+  /// This is the second stage of radio. Stage one (discovery) lives in
+  /// `MusicDiscoveryService.getRadioCandidates`, which fans out provider
+  /// related endpoints, the seed's artist, the seed's genre and trending.
+  /// This stage only orders and diversifies what it was handed — it performs no
+  /// I/O at all, so radio quality is a pure function of the candidate set and
+  /// the user's listening data.
+  ///
+  /// Steps:
+  /// 1. drop the seed, explicit [excludedIds] and implausible durations,
+  /// 2. drop normalized-title duplicates of the seed (no repeated song),
+  /// 3. emit [pinned] tracks first (guaranteed opening acts for artist/genre
+  ///    radio),
+  /// 4. score the remainder with [calculateScore] using [seed] similarity,
+  /// 5. enforce an [maxPerArtist] diversity cap so one artist cannot flood
+  ///    the queue.
+  Future<List<Track>> rankCandidates({
+    required List<Track> candidates,
+    required Track seed,
+    List<Track> history = const [],
+    List<Track> favorites = const [],
+    int limit = 12,
+    int maxPerArtist = 2,
+    Set<String> excludedIds = const {},
+    List<Track> pinned = const [],
+  }) async {
+    final blocked = Set<String>.from(excludedIds)..add(seed.id);
+    final seedTitle = _normalizeString(cleanTitle(seed.title));
+    final seenTitles = <String>{if (seedTitle.isNotEmpty) seedTitle};
+
+    // Dedup set scoped to the validation pass below. It must not leak into the
+    // ranking stage, otherwise every already-validated candidate would be
+    // discarded as "already seen".
+    final validatedFingerprints = <String>{};
+
+    final valid = <Track>[];
+    for (final track in candidates) {
+      if (blocked.contains(track.id)) continue;
+      if (!_isReasonableDuration(track)) continue;
+
+      final fingerprint = track.normalizedFingerprint;
+      if (validatedFingerprints.contains(fingerprint)) continue;
+
+      final titleKey = _normalizeString(cleanTitle(track.title));
+      if (titleKey.isNotEmpty) {
+        if (seenTitles.contains(titleKey)) continue;
+        seenTitles.add(titleKey);
+      }
+
+      validatedFingerprints.add(fingerprint);
+      valid.add(track);
+    }
+
+    if (valid.isEmpty) return const [];
+
+    // Fingerprints actually emitted, so pinned tracks are not re-ranked.
+    final emittedFingerprints = <String>{};
+    final results = <Track>[];
+    final artistCounts = <String, int>{};
+
+    // Pinned tracks lead the queue, still respecting the diversity cap.
+    for (final track in pinned) {
+      if (results.length >= limit) break;
+      final fingerprint = track.normalizedFingerprint;
+      if (!emittedFingerprints.add(fingerprint)) continue;
+      if (blocked.contains(track.id)) continue;
+      if (!_isReasonableDuration(track)) continue;
+
+      final artist = cleanArtist(track.artist).toLowerCase();
+      if ((artistCounts[artist] ?? 0) >= maxPerArtist) continue;
+      artistCounts[artist] = (artistCounts[artist] ?? 0) + 1;
+      results.add(track);
+    }
+
+    final stats = _repository.storageService.getInteractionStats();
+    final remaining = _rankTracksWithDiversity(
+      candidates: valid,
+      history: history,
+      favorites: favorites,
+      stats: stats,
+      seedTrack: seed,
+      limit: limit - results.length,
+      maxPerArtist: maxPerArtist,
+      existingArtistCounts: artistCounts,
+      skipFingerprints: emittedFingerprints,
+    );
+
+    results.addAll(remaining);
+    debugPrint(
+      '[MusicAlgorithmService] ranked ${results.length} radio tracks '
+      'from ${candidates.length} candidates for seed "${seed.title}"',
+    );
+    return results.take(limit).toList();
+  }
+
+  // ==========================================
+  // YOUTUBE QUERY GENERATION
+  // ==========================================
+
+  /// Generates intelligent YouTube search queries for recommendations and radio.
+  /// Uses recently played, favorite artists, favorite tracks, search history,
+  /// current track, artist, and genre.
+  List<String> generateYouTubeQueries([
+    Track? currentTrack,
+    List<Track> history = const [],
+    List<Track> favorites = const [],
+    List<String> searchHistory = const [],
+    String? currentGenre,
+  ]) {
+    final queries = <String>{};
+
+    if (currentTrack != null) {
+      final art = cleanArtist(currentTrack.artist);
+      final tit = cleanTitle(currentTrack.title);
+      if (art.isNotEmpty) {
+        queries.add(art);
+        queries.add('$art hits');
+        queries.add('$art similar songs');
+        queries.add('$tit radio');
+      }
+      if (currentTrack.genre.isNotEmpty && currentTrack.genre != 'Music') {
+        queries.add(currentTrack.genre);
+      }
+    }
+
+    final topArtist = _getTopArtist(history, favorites);
+    if (topArtist != null && topArtist.isNotEmpty) {
+      queries.add(topArtist);
+      queries.add('$topArtist popular songs');
+      final siblings = getSiblingArtists(topArtist, currentGenre);
+      if (siblings.isNotEmpty) {
+        queries.add(siblings.first);
+      }
+    }
+
+    if (currentGenre != null && currentGenre.isNotEmpty && currentGenre != 'All') {
+      queries.add('$currentGenre music');
+    }
+
+    for (final q in searchHistory.take(2)) {
+      if (q.trim().isNotEmpty) queries.add(q.trim());
+    }
+
+    return queries.toList();
+  }
+
+  // ==========================================
+  // HELPERS
+  // ==========================================
+
   static String cleanArtist(String artist) {
     var result = artist
         .replaceAll(RegExp(r'\s*(feat\.|ft\.|featuring|with|&|,|x|\+).*', caseSensitive: false), '')
@@ -293,7 +758,6 @@ class MusicAlgorithmService {
     return result.isEmpty ? artist.trim() : result;
   }
 
-  /// Cleans title by removing parenthetical metadata like "(Official Audio)", "(Live)", etc.
   static String cleanTitle(String title) {
     var result = title
         .replaceAll(
@@ -308,42 +772,24 @@ class MusicAlgorithmService {
     return result.isEmpty ? title.trim() : result;
   }
 
-  /// Checks if two song titles represent essentially the same song.
-  static bool _isSameSongTitle(String titleA, String titleB) {
-    final a = _normalizeString(cleanTitle(titleA));
-    final b = _normalizeString(cleanTitle(titleB));
-    if (a == b) return true;
-    if (a.isEmpty || b.isEmpty) return false;
-
-    // Substring containment if long enough
-    if (a.length >= 4 && b.contains(a)) return true;
-    if (b.length >= 4 && a.contains(b)) return true;
-
-    return false;
-  }
-
   static String _normalizeString(String str) {
     return str.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
   }
 
   static bool _isReasonableDuration(Track track) {
-    // Keep tracks between 45 seconds and 10 minutes (exclude 10-sec clips or 1-hour DJ mixes)
     return track.durationSeconds == 0 ||
         (track.durationSeconds >= 45 && track.durationSeconds <= 600);
   }
 
-  /// Finds sibling artists matching this artist or genre from the knowledge matrix.
   static List<String> getSiblingArtists(String artist, String? genre) {
     final artLower = artist.toLowerCase();
 
-    // Check predefined clusters
     for (final cluster in _genreArtistClusters.values) {
       if (cluster.any((name) => name.toLowerCase() == artLower || artLower.contains(name.toLowerCase()))) {
         return cluster.where((name) => name.toLowerCase() != artLower).toList();
       }
     }
 
-    // Genre-based fallback
     if (genre != null) {
       final genLower = genre.toLowerCase();
       if (genLower.contains('punjabi') || genLower.contains('desi')) {
@@ -369,7 +815,7 @@ class MusicAlgorithmService {
       }
     }
 
-    // Default global top recommendations
     return _genreArtistClusters['pop_soul']!;
   }
 }
+

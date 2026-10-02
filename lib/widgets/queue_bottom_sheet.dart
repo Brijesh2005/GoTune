@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/track.dart';
-import '../providers/audio_player_provider.dart';
+import '../providers/unified_playback_controller.dart';
 import '../theme/app_colors.dart';
 import 'animated_equalizer.dart';
 import 'network_artwork.dart';
@@ -22,7 +22,7 @@ class QueueBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<AudioPlayerProvider>();
+    final player = context.watch<UnifiedPlaybackController>();
     final queue = player.queue;
     final currentIdx = player.currentIndex;
     final currentTrack = player.currentTrack;
@@ -177,7 +177,7 @@ class QueueBottomSheet extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: AppColors.surfaceElevated,
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.primary.withOpacity(0.4), width: 1.2),
+                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.4), width: 1.2),
                     ),
                     child: Row(
                       children: [
@@ -369,7 +369,7 @@ class QueueBottomSheet extends StatelessWidget {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: queue.length,
-                    onReorder: (oldIndex, newIndex) {
+                    onReorderItem: (oldIndex, newIndex) {
                       player.reorderQueue(oldIndex, newIndex);
                     },
                     itemBuilder: (context, index) {
@@ -381,13 +381,13 @@ class QueueBottomSheet extends StatelessWidget {
                         margin: const EdgeInsets.only(bottom: 6),
                         decoration: BoxDecoration(
                           color: isCurrentlyPlaying
-                              ? AppColors.primary.withOpacity(0.08)
+                              ? AppColors.primary.withValues(alpha: 0.08)
                               : AppColors.surfaceCard,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: isCurrentlyPlaying
-                                ? AppColors.primary.withOpacity(0.3)
-                                : AppColors.border.withOpacity(0.5),
+                                ? AppColors.primary.withValues(alpha: 0.3)
+                                : AppColors.border.withValues(alpha: 0.5),
                           ),
                         ),
                         child: ListTile(

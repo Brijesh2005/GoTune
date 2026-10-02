@@ -1,30 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import '../models/playlist.dart';
-import '../models/track.dart';
-import '../providers/audio_player_provider.dart';
+import '../providers/unified_playback_controller.dart';
 import '../providers/library_provider.dart';
 import '../providers/music_provider.dart';
-import '../screens/now_playing_screen.dart';
-import '../screens/playlist_detail_screen.dart';
-import '../services/builtin_playlists_service.dart';
+import '../screens/artist_screen.dart';
+import '../screens/settings_screen.dart';
 import '../theme/app_colors.dart';
-import '../widgets/network_artwork.dart';
-import '../widgets/track_tile.dart';
+import '../widgets/mix_card.dart';
+import '../widgets/track_card.dart';
 
-/// Redesigned Home screen matching the Pulse modern dark aesthetic,
-/// featuring dynamic greetings, quick search jump, recently played history,
-/// and instant one-tap built-in playlist playback.
+/// Modern YouTube-Music-inspired personal music discovery dashboard.
+/// Features personalized time-based greeting, quick search bar,
+/// Quick Picks, Recently Played, Made For You mixes, Recommended Songs,
+/// Favorite Artists, Radio quick launches, Trending, Most Played, and On Repeat.
 class HomeScreen extends StatelessWidget {
   final VoidCallback onSearchTapped;
-  final VoidCallback onProfileTapped;
+  final VoidCallback? onProfileTapped;
   final VoidCallback onLibraryTapped;
 
   const HomeScreen({
     super.key,
     required this.onSearchTapped,
-    required this.onProfileTapped,
+    this.onProfileTapped,
     required this.onLibraryTapped,
   });
 
@@ -43,11 +41,38 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final musicProvider = context.watch<MusicProvider>();
     final libraryProvider = context.watch<LibraryProvider>();
-    final audioPlayer = context.read<AudioPlayerProvider>();
+    final audioPlayer = context.read<UnifiedPlaybackController>();
 
-    final featuredPlaylist = BuiltinPlaylistsService.getFeaturedPlaylist();
-    final builtinPlaylists = BuiltinPlaylistsService.getBuiltinPlaylists();
     final recents = libraryProvider.recentlyPlayed;
+    final mixes = musicProvider.personalizedMixes;
+    final quickPicks = musicProvider.quickPicks;
+    final recommended = musicProvider.recommendedForYou;
+    final mostPlayed = musicProvider.mostPlayed;
+    final onRepeat = musicProvider.onRepeat;
+    final rediscover = musicProvider.rediscover;
+    final favoriteArtists = musicProvider.favoriteArtists;
+    final trending = musicProvider.trendingTracks;
+    final discovery = musicProvider.discoveryTracks;
+    final becauseTracks = musicProvider.becauseYouListenedTracks;
+    final becauseArtist = musicProvider.becauseYouListenedArtist;
+
+    // Genre facets come from the discovery layer (MusicProvider), never a
+    // hardcoded list here, so the browse chips stay in sync with the catalogs.
+    final genreFacets = musicProvider.genres;
+    final genres = genreFacets.isNotEmpty
+        ? genreFacets.map((g) => g.title).toList()
+        : <String>[
+            'Bollywood',
+            'Pop',
+            'Electronic',
+            'Punjabi',
+            'Hip-Hop',
+            'Lo-Fi',
+            'Rock',
+            'Acoustic',
+            'R&B',
+            'Ambient',
+          ];
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -63,49 +88,79 @@ class HomeScreen extends StatelessWidget {
             ]);
           },
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 20, 18, 120),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
             children: [
-              // 1. Header with Date kicker & Profile button
+              // 1. App Header: "GO TUNE" Kicker + Date + "Good evening, Brijesh" + Settings Gear
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _getFormattedDate(),
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w400,
-                        ),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'GO TUNE',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _getFormattedDate(),
+                            style: const TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 6),
                       Text(
-                        _getGreeting(),
+                        '${_getGreeting()}, Brijesh',
                         style: const TextStyle(
                           color: AppColors.textPrimary,
-                          fontSize: 30,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.6,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
                         ),
                       ),
                     ],
                   ),
-                  // Profile button
+                  // Settings Gear Button
                   GestureDetector(
-                    onTap: onProfileTapped,
+                    onTap: () {
+                      if (onProfileTapped != null) {
+                        onProfileTapped!();
+                      } else {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                        );
+                      }
+                    },
                     child: Container(
-                      width: 44,
-                      height: 44,
+                      width: 42,
+                      height: 42,
                       decoration: BoxDecoration(
-                        color: AppColors.surface,
+                        color: AppColors.surfaceElevated,
                         shape: BoxShape.circle,
                         border: Border.all(color: const Color(0x1AFFFFFF), width: 1),
                       ),
                       child: const Center(
                         child: Icon(
-                          Icons.person_rounded,
+                          Icons.settings_rounded,
                           color: AppColors.textPrimary,
                           size: 20,
                         ),
@@ -114,27 +169,27 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 18),
 
-              // 2. Search Shortcut Field
+              // 2. Search Bar Shortcut
               GestureDetector(
                 onTap: onSearchTapped,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
                   decoration: BoxDecoration(
-                    color: AppColors.surfaceCard,
+                    color: AppColors.surfaceElevated,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppColors.border, width: 1),
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.search_rounded, color: AppColors.textMuted, size: 22),
+                      Icon(Icons.search_rounded, color: AppColors.primary, size: 22),
                       SizedBox(width: 12),
                       Text(
-                        'Search songs, artists, albums',
+                        'Search songs, artists, albums...',
                         style: TextStyle(
                           color: AppColors.textSecondary,
-                          fontSize: 15,
+                          fontSize: 14.5,
                           fontWeight: FontWeight.w400,
                         ),
                       ),
@@ -142,116 +197,390 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
 
-              // 3. Recently Played Section
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Recently played',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                    ),
+              // 3. Quick Picks Shelf
+              if (quickPicks.isNotEmpty) ...[
+                _buildSectionHeader('Quick Picks', subtitle: 'Start listening with one tap'),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 215,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: quickPicks.length,
+                    itemBuilder: (context, index) {
+                      final track = quickPicks[index];
+                      return TrackCard(
+                        track: track,
+                        queue: quickPicks,
+                      );
+                    },
                   ),
-                  GestureDetector(
-                    onTap: onLibraryTapped,
-                    child: const Text(
-                      'Your library',
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                ),
+                const SizedBox(height: 28),
+              ],
+
+              // 4. Recently Played Shelf
+              if (recents.isNotEmpty) ...[
+                _buildSectionHeader(
+                  'Recently Played',
+                  actionLabel: 'See all',
+                  onAction: onLibraryTapped,
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 215,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: recents.length,
+                    itemBuilder: (context, index) {
+                      final item = recents[index];
+                      return TrackCard(
+                        track: item.track,
+                        queue: recents.map((r) => r.track).toList(),
+                      );
+                    },
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 28),
+              ],
+
+              // 5. Made For You / Personalized Mixes Carousel
+              if (mixes.isNotEmpty) ...[
+                _buildSectionHeader('Made For You', subtitle: 'Personalized blends updated daily'),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 130,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: mixes.length,
+                    itemBuilder: (context, index) {
+                      final mix = mixes[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: MixCard(
+                          mix: mix,
+                          onTap: () {
+                            if (mix.tracks.isNotEmpty) {
+                              audioPlayer.playTrack(
+                                mix.tracks.first,
+                                playlist: mix.tracks,
+                                initialIndex: 0,
+                              );
+                            }
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 28),
+              ],
+
+              // 6. Because You Listened To [Artist]
+              if (becauseTracks.isNotEmpty && becauseArtist != null) ...[
+                _buildSectionHeader(
+                  'Because You Listened To $becauseArtist',
+                  subtitle: 'Similar artists and compatible songs',
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 215,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: becauseTracks.length,
+                    itemBuilder: (context, index) {
+                      final track = becauseTracks[index];
+                      return TrackCard(
+                        track: track,
+                        queue: becauseTracks,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 28),
+              ],
+
+              // 7. Recommended Songs Shelf
+              if (recommended.isNotEmpty) ...[
+                _buildSectionHeader('Recommended Songs', subtitle: 'Ranked for your music taste'),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 215,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: recommended.length,
+                    itemBuilder: (context, index) {
+                      final track = recommended[index];
+                      return TrackCard(
+                        track: track,
+                        queue: recommended,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 28),
+              ],
+
+              // 8. Favorite Artists Shelf
+              if (favoriteArtists.isNotEmpty) ...[
+                _buildSectionHeader('Favorite Artists', subtitle: 'Tap to open artist or start radio'),
+                const SizedBox(height: 14),
+                SizedBox(
+                  height: 110,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: favoriteArtists.length,
+                    itemBuilder: (context, index) {
+                      final artistName = favoriteArtists[index];
+                      return GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ArtistScreen(
+                                artistId: artistName,
+                                artistName: artistName,
+                              ),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          width: 85,
+                          margin: const EdgeInsets.only(right: 14),
+                          child: Column(
+                            children: [
+                              Container(
+                                width: 68,
+                                height: 68,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      AppColors.primarySoft,
+                                      AppColors.surfaceElevated,
+                                    ],
+                                  ),
+                                  border: Border.all(color: AppColors.border, width: 1.5),
+                                ),
+                                child: const Center(
+                                  child: Icon(Icons.person_rounded, color: AppColors.primary, size: 32),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                artistName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+
+              // 9. Quick Radio Stations
+              _buildSectionHeader('Radio Stations', subtitle: 'Endless autoplay tuned to your vibe'),
               const SizedBox(height: 12),
-              if (recents.isNotEmpty)
-                ...recents.take(3).map((item) {
-                  return _buildTrackRow(
-                    context: context,
-                    track: item.track,
-                    audioPlayer: audioPlayer,
-                  );
-                })
-              else if (musicProvider.trendingTracks.isNotEmpty)
-                ...musicProvider.trendingTracks.take(3).map((track) {
-                  return _buildTrackRow(
-                    context: context,
-                    track: track,
-                    audioPlayer: audioPlayer,
-                  );
-                })
-              else
-                _buildEmptyRecentPlaceholder(),
-              const SizedBox(height: 28),
-
-              // 4. Made For You: Featured Built-in Playlist Card
-              const Text(
-                'Made for you',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 14),
-              _buildFeaturedCard(context, featuredPlaylist, audioPlayer),
-              const SizedBox(height: 28),
-
-              // 5. Curated Built-in Playlists
-              const Text(
-                'Curated playlists',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 14),
               SizedBox(
-                height: 155,
-                child: ListView.separated(
+                height: 54,
+                child: ListView(
                   scrollDirection: Axis.horizontal,
-                  itemCount: builtinPlaylists.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 14),
-                  itemBuilder: (context, index) {
-                    final playlist = builtinPlaylists[index];
-                    return _buildCuratedPlaylistCard(context, playlist, audioPlayer);
-                  },
+                  children: [
+                    _buildRadioChip(
+                      icon: Icons.radio_rounded,
+                      label: 'Bollywood Radio',
+                      color: const Color(0xFFE50914),
+                      onTap: () => audioPlayer.startGenreRadio('Bollywood'),
+                    ),
+                    _buildRadioChip(
+                      icon: Icons.graphic_eq_rounded,
+                      label: 'Pop Hits Radio',
+                      color: const Color(0xFF00B0FF),
+                      onTap: () => audioPlayer.startGenreRadio('Pop'),
+                    ),
+                    _buildRadioChip(
+                      icon: Icons.bolt_rounded,
+                      label: 'EDM Party Radio',
+                      color: const Color(0xFFFF9800),
+                      onTap: () => audioPlayer.startGenreRadio('EDM'),
+                    ),
+                    _buildRadioChip(
+                      icon: Icons.nightlife_rounded,
+                      label: 'Punjabi Radio',
+                      color: const Color(0xFF1DB954),
+                      onTap: () => audioPlayer.startGenreRadio('Punjabi'),
+                    ),
+                    _buildRadioChip(
+                      icon: Icons.spa_rounded,
+                      label: 'Lofi Chill Radio',
+                      color: const Color(0xFF9C27B0),
+                      onTap: () => audioPlayer.startGenreRadio('Lofi'),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 28),
 
-              // 6. Popular & Trending Hits
-              const Text(
-                'Popular & Trending',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              // 10. Trending & Popular Now
+              _buildSectionHeader('Trending', subtitle: 'Most popular songs right now'),
               const SizedBox(height: 12),
-              if (musicProvider.trendingState == LoadState.loading)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(24.0),
-                    child: CircularProgressIndicator(color: AppColors.primary),
+              if (musicProvider.trendingState == LoadState.loading && trending.isEmpty)
+                _buildShimmerLoader()
+              else if (trending.isNotEmpty)
+                SizedBox(
+                  height: 215,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: trending.length,
+                    itemBuilder: (context, index) {
+                      final track = trending[index];
+                      return TrackCard(
+                        track: track,
+                        queue: trending,
+                      );
+                    },
                   ),
                 )
-              else if (musicProvider.trendingTracks.isNotEmpty)
-                ...musicProvider.trendingTracks.skip(3).take(8).map((track) {
-                  return _buildTrackRow(
-                    context: context,
-                    track: track,
-                    audioPlayer: audioPlayer,
-                  );
+              else if (musicProvider.trendingState == LoadState.error)
+                _buildErrorCard("Couldn't load trending tracks.", () {
+                  musicProvider.fetchTrendingTracks();
                 }),
+              const SizedBox(height: 28),
+
+              // 11. Most Played Shelf
+              if (mostPlayed.isNotEmpty) ...[
+                _buildSectionHeader('Most Played', subtitle: 'Your top heavy-rotation songs'),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 215,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: mostPlayed.length,
+                    itemBuilder: (context, index) {
+                      final track = mostPlayed[index];
+                      return TrackCard(
+                        track: track,
+                        queue: mostPlayed,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 28),
+              ],
+
+              // 12. On Repeat Shelf
+              if (onRepeat.isNotEmpty) ...[
+                _buildSectionHeader('On Repeat', subtitle: 'Songs you keep coming back to'),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 215,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: onRepeat.length,
+                    itemBuilder: (context, index) {
+                      final track = onRepeat[index];
+                      return TrackCard(
+                        track: track,
+                        queue: onRepeat,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 28),
+              ],
+
+              // 13. Rediscover Shelf
+              if (rediscover.isNotEmpty) ...[
+                _buildSectionHeader('Rediscover', subtitle: 'Past favorites to rekindle'),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 215,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: rediscover.length,
+                    itemBuilder: (context, index) {
+                      final track = rediscover[index];
+                      return TrackCard(
+                        track: track,
+                        queue: rediscover,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 28),
+              ],
+
+              // 14. New / Discovery Section
+              _buildSectionHeader('New & Discoveries', subtitle: 'Explore fresh releases'),
+              const SizedBox(height: 12),
+              if (musicProvider.discoveryState == LoadState.loading && discovery.isEmpty)
+                _buildShimmerLoader()
+              else if (discovery.isNotEmpty)
+                SizedBox(
+                  height: 215,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: discovery.length,
+                    itemBuilder: (context, index) {
+                      final track = discovery[index];
+                      return TrackCard(
+                        track: track,
+                        queue: discovery,
+                      );
+                    },
+                  ),
+                )
+              else if (musicProvider.discoveryState == LoadState.error)
+                _buildErrorCard("Couldn't load discovery tracks.", () {
+                  musicProvider.fetchDiscoveryTracks();
+                }),
+              const SizedBox(height: 28),
+
+              // 15. Explore Genres Chips
+              _buildSectionHeader('Genres & Moods', subtitle: 'Browse by mood and style'),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: genres.map((genre) {
+                  final isSelected = musicProvider.selectedGenre == genre;
+                  return ActionChip(
+                    backgroundColor: isSelected
+                        ? AppColors.primary
+                        : AppColors.surfaceElevated,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      side: BorderSide(
+                        color: isSelected ? AppColors.primary : AppColors.border,
+                        width: 1,
+                      ),
+                    ),
+                    label: Text(
+                      genre,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : AppColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                    onPressed: () {
+                      musicProvider.setDiscoveryGenre(genre);
+                    },
+                  );
+                }).toList(),
+              ),
             ],
           ),
         ),
@@ -259,360 +588,132 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  /// Builds a clean interactive track row matching the HTML prototype
-  Widget _buildTrackRow({
-    required BuildContext context,
-    required Track track,
-    required AudioPlayerProvider audioPlayer,
+  Widget _buildRadioChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
   }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      child: Material(
-        color: Colors.transparent,
+      margin: const EdgeInsets.only(right: 10),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () {
-            audioPlayer.playWithSmartRadio(track);
-            NowPlayingScreen.show(context);
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Row(
-              children: [
-                // Art Tile
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: track.thumbnailArtworkUrl.isNotEmpty
-                      ? NetworkArtwork(
-                          imageUrl: track.thumbnailArtworkUrl,
-                          width: 48,
-                          height: 48,
-                          borderRadius: 12,
-                        )
-                      : Container(
-                          width: 48,
-                          height: 48,
-                          decoration: const BoxDecoration(
-                            gradient: AppColors.artTileGradient,
-                          ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.music_note_rounded,
-                              color: AppColors.primaryLight,
-                              size: 22,
-                            ),
-                          ),
-                        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: color.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
                 ),
-                const SizedBox(width: 14),
-
-                // Title + Subtitle
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '${track.artist} · ${track.genre}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Duration
-                Text(
-                  track.formattedDuration,
-                  style: const TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildEmptyRecentPlaceholder() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: const Center(
-        child: Text(
-          'Your recently played tracks will show up here.',
-          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-        ),
-      ),
-    );
-  }
-
-  /// Builds the featured "Daily Mix" card matching the HTML prototype
-  Widget _buildFeaturedCard(
-    BuildContext context,
-    Playlist playlist,
-    AudioPlayerProvider audioPlayer,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0x1AFFFFFF), width: 1),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Banner Area with Overlay Text
-          GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
-                ),
-              );
-            },
-            child: Stack(
-              children: [
-                Container(
-                  height: 160,
-                  width: double.infinity,
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF1E3A5F), Color(0xFF0F1A24)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
-                  child: Opacity(
-                    opacity: 0.45,
-                    child: Image.network(
-                      'https://images.pexels.com/photos/11398246/pexels-photo-11398246.jpeg?auto=compress&cs=tinysrgb&w=1280',
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Center(
-                        child: Icon(Icons.headphones_rounded, size: 70, color: AppColors.primaryLight),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned.fill(
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Colors.transparent, Color(0xCC101215)],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 18,
-                  bottom: 16,
-                  right: 18,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'DAILY MIX',
-                        style: TextStyle(
-                          color: Color(0xFF93C5FD),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.2,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        playlist.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Bottom Info & Instant Play Button
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    playlist.description,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // Play button with immediate queue start
-                GestureDetector(
-                  onTap: () {
-                    if (playlist.tracks.isNotEmpty) {
-                      audioPlayer.playTrack(
-                        playlist.tracks.first,
-                        playlist: playlist.tracks,
-                      );
-                      NowPlayingScreen.show(context);
-                    }
-                  },
-                  child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primary.withValues(alpha: 0.35),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: const Center(
-                      child: Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.white,
-                        size: 26,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Builds horizontal cards for additional built-in playlists
-  Widget _buildCuratedPlaylistCard(
-    BuildContext context,
-    Playlist playlist,
-    AudioPlayerProvider audioPlayer,
-  ) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
-          ),
-        );
-      },
-      child: Container(
-        width: 220,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0x1AFFFFFF), width: 1),
-        ),
-        child: Column(
+  Widget _buildSectionHeader(String title, {String? subtitle, String? actionLabel, VoidCallback? onAction}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    gradient: AppColors.artTileGradient,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Center(
-                    child: Icon(Icons.music_note_rounded, color: AppColors.primaryLight, size: 22),
-                  ),
-                ),
-                // Instant play icon
-                GestureDetector(
-                  onTap: () {
-                    if (playlist.tracks.isNotEmpty) {
-                      audioPlayer.playTrack(
-                        playlist.tracks.first,
-                        playlist: playlist.tracks,
-                      );
-                      NowPlayingScreen.show(context);
-                    }
-                  },
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF282E36),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Center(
-                      child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
-                    ),
-                  ),
-                ),
-              ],
+            Text(
+              title,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+              ),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  playlist.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w400,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  '${playlist.tracks.length} tracks · Tap to play',
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ],
         ),
+        if (actionLabel != null && onAction != null)
+          GestureDetector(
+            onTap: onAction,
+            child: Text(
+              actionLabel,
+              style: const TextStyle(
+                color: AppColors.primaryLight,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildShimmerLoader() {
+    return SizedBox(
+      height: 200,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: 4,
+        itemBuilder: (context, index) {
+          return Container(
+            width: 145,
+            margin: const EdgeInsets.only(right: 14),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceElevated,
+              borderRadius: BorderRadius.circular(14),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildErrorCard(String message, VoidCallback onRetry) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceElevated,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            child: const Text('Retry', style: TextStyle(color: AppColors.primary)),
+          ),
+        ],
       ),
     );
   }

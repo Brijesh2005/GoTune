@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
-import '../providers/audio_player_provider.dart';
+import '../providers/unified_playback_controller.dart';
 import '../providers/library_provider.dart';
 import '../theme/app_colors.dart';
 import '../widgets/network_artwork.dart';
@@ -10,9 +10,14 @@ import '../widgets/network_artwork.dart';
 /// Screen displaying tracks within a custom playlist with reordering,
 /// playback actions, renaming, and removal.
 class PlaylistDetailScreen extends StatelessWidget {
-  final String playlistId;
+  final String? playlistId;
+  final Playlist? initialPlaylist;
 
-  const PlaylistDetailScreen({super.key, required this.playlistId});
+  const PlaylistDetailScreen({
+    super.key,
+    this.playlistId,
+    Playlist? playlist,
+  }) : initialPlaylist = playlist;
 
   void _showRenameDialog(BuildContext context, LibraryProvider library, Playlist playlist) {
     final nameController = TextEditingController(text: playlist.name);
@@ -88,8 +93,8 @@ class PlaylistDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryProvider>();
-    final player = context.read<AudioPlayerProvider>();
-    final playlist = library.getPlaylist(playlistId);
+    final player = context.read<UnifiedPlaybackController>();
+    final playlist = initialPlaylist ?? (playlistId != null ? library.getPlaylist(playlistId!) : null);
 
     if (playlist == null) {
       return Scaffold(
@@ -173,7 +178,7 @@ class PlaylistDetailScreen extends StatelessWidget {
                       borderRadius: BorderRadius.circular(18),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.primary.withOpacity(0.3),
+                          color: AppColors.primary.withValues(alpha: 0.3),
                           blurRadius: 20,
                           offset: const Offset(0, 8),
                         ),
@@ -265,7 +270,7 @@ class PlaylistDetailScreen extends StatelessWidget {
                       ),
                       SizedBox(height: 4),
                       Text(
-                        'Browse Trending or Search Audius, tap "..." on any track and select "Add to Playlist".',
+                        'Browse Home or Search YouTube, tap "..." on any track and select "Add to Playlist".',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: AppColors.textMuted, fontSize: 12.5),
                       ),
@@ -279,7 +284,7 @@ class PlaylistDetailScreen extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 120),
               sliver: SliverReorderableList(
                 itemCount: tracks.length,
-                onReorder: (oldIndex, newIndex) {
+                onReorderItem: (oldIndex, newIndex) {
                   library.reorderPlaylistTracks(playlist.id, oldIndex, newIndex);
                 },
                 itemBuilder: (context, index) {
@@ -292,7 +297,7 @@ class PlaylistDetailScreen extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: AppColors.surfaceCard,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.border.withOpacity(0.5)),
+                        border: Border.all(color: AppColors.border.withValues(alpha: 0.5)),
                       ),
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),

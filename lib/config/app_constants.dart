@@ -13,7 +13,7 @@ class AppConstants {
   static const String keyAudioQuality = 'gotune_audio_quality_pref';
   static const String keyThemeMode = 'gotune_theme_mode';
 
-  // Popular music genres supported on Audius
+  // Popular music genres supported on YouTube
   static const List<String> discoveryGenres = [
     'All',
     'Electronic',
@@ -27,5 +27,19 @@ class AppConstants {
     'Classical',
     'Metal',
     'Lo-Fi',
+  ];
+
+  /// Listener-facing mood facets used for mood browsing and mood radio.
+  static const List<String> discoveryMoods = [
+    'Chill',
+    'Workout',
+    'Focus',
+    'Party',
+    'Romantic',
+    'Energetic',
+    'Sleep',
+    'Commute',
+    'Happy',
+    'Sad',
   ];
 }

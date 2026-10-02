@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/audio_player_provider.dart';
+import '../providers/unified_playback_controller.dart';
 import '../theme/app_colors.dart';
 
 /// Modal bottom sheet allowing users to set a sleep timer preset
@@ -29,7 +29,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<AudioPlayerProvider>();
+    final player = context.watch<UnifiedPlaybackController>();
     final isActive = player.isSleepTimerActive;
     final remainingFormatted = player.formattedSleepTimerRemaining;
 
@@ -63,7 +63,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.15),
+                      color: AppColors.primary.withValues(alpha: 0.15),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -100,9 +100,9 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.2),
+                        color: AppColors.primary.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.primaryLight.withOpacity(0.4)),
+                        border: Border.all(color: AppColors.primaryLight.withValues(alpha: 0.4)),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -134,7 +134,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
                 decoration: BoxDecoration(
                   gradient: AppColors.cardGradient,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   children: [
@@ -342,9 +342,9 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
                           },
                         ),
                       ),
-                      Row(
+                      const Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: const [
+                        children: [
                           Text('1 min', style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
                           Text('60 min', style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
                           Text('120 min', style: TextStyle(color: AppColors.textMuted, fontSize: 11)),

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/app_constants.dart';
 import '../providers/settings_provider.dart';
+import '../services/music_catalog_aggregator.dart';
+import '../services/provider_execution.dart';
 import '../theme/app_colors.dart';
 
-/// Redesigned Profile & Settings screen matching the Pulse dark aesthetic.
+/// Redesigned Profile & Settings screen matching the GoTune YouTube dark aesthetic.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -13,74 +15,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _smartDownloads = true;
   bool _notifications = true;
   bool _darkAppearance = true;
-  bool _showAdvancedApi = false;
-
-  void _showEditAppNameDialog(BuildContext context, SettingsProvider settings) {
-    final controller = TextEditingController(text: settings.appName);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surfaceElevated,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Edit App Name', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
-        content: TextField(
-          controller: controller,
-          style: const TextStyle(color: AppColors.textPrimary),
-          decoration: const InputDecoration(hintText: 'App name identifier'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (controller.text.trim().isNotEmpty) {
-                settings.updateAppName(controller.text.trim());
-                Navigator.pop(ctx);
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            child: const Text('Save', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditApiKeyDialog(BuildContext context, SettingsProvider settings) {
-    final controller = TextEditingController(text: settings.apiKey ?? '');
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surfaceElevated,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Audius API Key', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
-        content: TextField(
-          controller: controller,
-          style: const TextStyle(color: AppColors.textPrimary),
-          decoration: const InputDecoration(hintText: 'Leave empty for public access'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              settings.updateApiKey(controller.text.trim().isEmpty ? null : controller.text.trim());
-              Navigator.pop(ctx);
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            child: const Text('Save', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -95,7 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             // Screen Header
             const Text(
-              'Profile',
+              'Profile & Settings',
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 30,
@@ -105,7 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 20),
 
-            // Profile Card matching prototype
+            // Profile Card
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
@@ -147,7 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       SizedBox(height: 3),
                       Text(
-                        'listener@gotune.app',
+                        'YouTube Music Player',
                         style: TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 13.5,
@@ -162,7 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             // Playback & Preferences Section Title
             const Text(
-              'Playback & preferences',
+              'Preferences',
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 22,
@@ -181,14 +117,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               clipBehavior: Clip.antiAlias,
               child: Column(
                 children: [
-                  // Audio Quality Dropdown
+                  // Playback Quality Selection
                   Padding(
                     padding: const EdgeInsets.all(18),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Audio quality',
+                          'Playback quality preference',
                           style: TextStyle(
                             color: AppColors.textPrimary,
                             fontSize: 14.5,
@@ -206,24 +142,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<String>(
                               value: settings.audioQuality == '320'
-                                  ? 'High · 320 kbps'
+                                  ? 'High definition'
                                   : settings.audioQuality == '160'
-                                      ? 'Standard · 160 kbps'
-                                      : 'High · 320 kbps',
+                                      ? 'Standard'
+                                      : 'High definition',
                               isExpanded: true,
                               dropdownColor: AppColors.surfaceElevated,
                               style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
                               icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondary),
                               items: const [
-                                DropdownMenuItem(value: 'High · 320 kbps', child: Text('High · 320 kbps')),
-                                DropdownMenuItem(value: 'Standard · 160 kbps', child: Text('Standard · 160 kbps')),
-                                DropdownMenuItem(value: 'Data saver · 96 kbps', child: Text('Data saver · 96 kbps')),
+                                DropdownMenuItem(value: 'High definition', child: Text('High definition (HD)')),
+                                DropdownMenuItem(value: 'Standard', child: Text('Standard')),
+                                DropdownMenuItem(value: 'Data saver', child: Text('Data saver')),
                               ],
                               onChanged: (val) {
                                 if (val != null) {
-                                  if (val.contains('320')) {
+                                  if (val.contains('High')) {
                                     settings.updateAudioQuality('320');
-                                  } else if (val.contains('160')) {
+                                  } else if (val.contains('Standard')) {
                                     settings.updateAudioQuality('160');
                                   } else {
                                     settings.updateAudioQuality('96');
@@ -238,19 +174,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const Divider(color: Color(0x1AFFFFFF), height: 1),
 
-                  // Smart Downloads Toggle
+                  // Notifications Toggle
                   _buildToggleRow(
-                    title: 'Smart downloads',
-                    subtitle: 'Save recent favourites offline',
-                    value: _smartDownloads,
-                    onChanged: (v) => setState(() => _smartDownloads = v),
-                  ),
-                  const Divider(color: Color(0x1AFFFFFF), height: 1),
-
-                  // New Music Notifications Toggle
-                  _buildToggleRow(
-                    title: 'New music notifications',
-                    subtitle: 'Releases and playlist updates',
+                    title: 'Recommendations & updates',
+                    subtitle: 'Weekly trending releases and radio discovery',
                     value: _notifications,
                     onChanged: (v) => setState(() => _notifications = v),
                   ),
@@ -259,7 +186,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   // Dark Appearance Toggle
                   _buildToggleRow(
                     title: 'Dark appearance',
-                    subtitle: 'Easy on the eyes, day or night',
+                    subtitle: 'OLED-optimized high contrast dark theme',
                     value: _darkAppearance,
                     onChanged: (v) => setState(() => _darkAppearance = v),
                   ),
@@ -268,7 +195,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 24),
 
-            // Advanced API Configuration (collapsible)
+            // Diagnostics and Cache (collapsible)
             Container(
               decoration: BoxDecoration(
                 color: AppColors.surface,
@@ -277,51 +204,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               child: ExpansionTile(
                 title: const Text(
-                  'API & Network Diagnostics',
+                  'Diagnostics & Storage',
                   style: TextStyle(color: AppColors.textPrimary, fontSize: 14.5, fontWeight: FontWeight.w600),
                 ),
                 subtitle: const Text(
-                  'Decentralized nodes & credentials',
+                  'YouTube catalog cache & reliability',
                   style: TextStyle(color: AppColors.textMuted, fontSize: 12),
                 ),
                 leading: const Icon(Icons.tune_rounded, color: AppColors.primaryLight),
                 children: [
                   ListTile(
-                    title: const Text('API Client Name', style: TextStyle(color: AppColors.textPrimary, fontSize: 13.5)),
-                    subtitle: Text(settings.appName, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                    trailing: const Icon(Icons.edit_rounded, color: AppColors.textMuted, size: 18),
-                    onTap: () => _showEditAppNameDialog(context, settings),
+                    title: const Text(
+                      'Catalog Provider Health',
+                      style: TextStyle(color: AppColors.textPrimary, fontSize: 13.5),
+                    ),
+                    subtitle: const Text(
+                      'Live reliability metrics for YouTube discovery',
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                    ),
+                    trailing: const Icon(Icons.monitor_heart_rounded, color: AppColors.primaryLight, size: 20),
+                    onTap: () => _showProviderHealthSheet(context),
                   ),
                   ListTile(
-                    title: const Text('Audius API Key', style: TextStyle(color: AppColors.textPrimary, fontSize: 13.5)),
-                    subtitle: Text(
-                      settings.apiKey != null && settings.apiKey!.isNotEmpty ? '••••••••' : 'Optional (public endpoints)',
-                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                    title: const Text(
+                      'Clear Catalog Cache',
+                      style: TextStyle(color: AppColors.textPrimary, fontSize: 13.5),
                     ),
-                    trailing: const Icon(Icons.edit_rounded, color: AppColors.textMuted, size: 18),
-                    onTap: () => _showEditApiKeyDialog(context, settings),
-                  ),
-                  ListTile(
-                    title: const Text('Test Network Connection', style: TextStyle(color: AppColors.textPrimary, fontSize: 13.5)),
-                    subtitle: settings.testMessage.isNotEmpty
-                        ? Text(
-                            settings.testMessage,
-                            style: TextStyle(
-                              color: settings.testStatus == ConnectionTestStatus.error ? AppColors.error : AppColors.accentGreen,
-                              fontSize: 12,
-                            ),
-                          )
-                        : const Text('Ping discovery nodes', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                    trailing: ElevatedButton(
-                      onPressed: () => settings.testAudiusConnection(),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.surfaceElevated,
-                        foregroundColor: AppColors.textPrimary,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        minimumSize: Size.zero,
-                      ),
-                      child: const Text('Test', style: TextStyle(fontSize: 12)),
+                    subtitle: const Text(
+                      'Force browse and search to re-fetch freshest YouTube results',
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 12),
                     ),
+                    trailing: const Icon(Icons.restart_alt_rounded, color: AppColors.primaryLight, size: 20),
+                    onTap: () {
+                      MusicCatalogAggregator.active?.invalidateCatalogCaches();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('YouTube catalog cache cleared')),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -331,10 +250,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // App Footer
             const Center(
               child: Text(
-                '${AppConstants.appName} v${AppConstants.appVersion}',
+                '${AppConstants.appName} v${AppConstants.appVersion} • Powered by YouTube IFrame Player',
                 style: TextStyle(
                   color: AppColors.textMuted,
-                  fontSize: 12.5,
+                  fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -343,6 +262,140 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  void _showProviderHealthSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) {
+        return AnimatedBuilder(
+          animation: MusicDiagnostics.instance,
+          builder: (context, _) {
+            final diagnostics = MusicDiagnostics.instance;
+            final health = diagnostics.allHealth
+              ..sort((a, b) => b.totalCalls.compareTo(a.totalCalls));
+
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.6,
+              maxChildSize: 0.9,
+              builder: (context, scrollController) {
+                return ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
+                  children: [
+                    const Text(
+                      'Catalog Provider Health',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Recovered by retry: ${diagnostics.totalRecoveredByRetry}  •  '
+                      'Stale cache serves: ${diagnostics.totalStaleCacheServes}',
+                      style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+                    ),
+                    const SizedBox(height: 16),
+                    if (health.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 30),
+                        child: Text(
+                          'No catalog calls yet. Browse or search to start collecting health data.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                        ),
+                      ),
+                    for (final entry in health) ...[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceElevated,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppColors.border, width: 1),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    entry.displayName,
+                                    style: const TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontSize: 14.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  _healthLabel(entry),
+                                  style: TextStyle(
+                                    color: _healthColor(entry),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${entry.totalCalls} calls  •  '
+                              '${(entry.successRate * 100).round()}% success  •  '
+                              '${entry.failureCount} failed  •  '
+                              '${entry.timeoutCount} timed out  •  '
+                              '${entry.emptyCount} empty  •  '
+                              '${entry.retryCount} retries',
+                              style: const TextStyle(color: AppColors.textMuted, fontSize: 11.5),
+                            ),
+                            if (entry.lastError != null) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                'Last error: ${entry.lastError}',
+                                style: const TextStyle(color: AppColors.error, fontSize: 11.5),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                    TextButton.icon(
+                      onPressed: () {
+                        MusicDiagnostics.instance.clear();
+                        Navigator.pop(ctx);
+                      },
+                      icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                      label: const Text('Reset statistics'),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _healthLabel(ProviderHealth health) {
+    if (health.totalCalls == 0) return 'Idle';
+    if (health.isDegraded) return 'Degraded';
+    return 'Healthy';
+  }
+
+  Color _healthColor(ProviderHealth health) {
+    if (health.totalCalls == 0) return AppColors.textMuted;
+    if (health.isDegraded) return AppColors.error;
+    return AppColors.accentGreen;
   }
 
   Widget _buildToggleRow({
@@ -380,7 +433,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: AppColors.primary,
+            activeThumbColor: AppColors.primary,
             activeTrackColor: AppColors.primarySoft,
             inactiveThumbColor: Colors.white,
             inactiveTrackColor: const Color(0xFF3B424C),
