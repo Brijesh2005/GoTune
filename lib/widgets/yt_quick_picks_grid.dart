@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/track.dart';
 import '../providers/unified_playback_controller.dart';
+import '../screens/now_playing_screen.dart';
 import '../theme/app_colors.dart';
 import 'animated_equalizer.dart';
 import 'network_artwork.dart';
@@ -181,6 +182,7 @@ class _YtQuickPicksGridState extends State<YtQuickPicksGrid> {
                               playlist: allTracks,
                               initialIndex: trackIndex >= 0 ? trackIndex : 0,
                             );
+                        NowPlayingScreen.show(context);
                       },
                     );
                   }).toList(),

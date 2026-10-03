@@ -15,3 +15,9 @@
 -keep class android.webkit.** { *; }
 
 -keepattributes *Annotation*
+
+# AudioService & JustAudio
+-keep class com.ryanheise.audioservice.** { *; }
+-keep class com.ryanheise.just_audio.** { *; }
+-dontwarn com.ryanheise.audioservice.**
+-dontwarn com.ryanheise.just_audio.**

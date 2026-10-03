@@ -1,3 +1,4 @@
+import 'package:audio_service/audio_service.dart';
 import '../utils/duration_formatter.dart';
 import '../utils/html_unescape.dart';
 import 'music_content.dart';
@@ -14,7 +15,9 @@ class Track implements MusicContent {
   final String? album;
   final String? thumbnailUrl;
   final Duration? _duration;
-  final String source; // 'youtube'
+  final String source; // 'youtube', 'saavn'
+  final String? streamUrl;
+  final List<String> mirrors;
 
   // Supplementary YouTube metadata fields
   final String? youtubeVideoId;
@@ -42,6 +45,8 @@ class Track implements MusicContent {
     Duration? duration,
     String? source,
     String? provider,
+    this.streamUrl,
+    this.mirrors = const [],
     this.youtubeVideoId,
     String? providerTrackId,
     String? sourceId,
@@ -61,7 +66,10 @@ class Track implements MusicContent {
     this.isArtistVerified = false,
   })  : _duration = duration,
         source = provider ?? source ?? 'youtube',
-        sourceType = sourceType ?? PlaybackType.youtubeIframe;
+        sourceType = sourceType ??
+            (streamUrl != null && streamUrl != ''
+                ? PlaybackType.directStream
+                : PlaybackType.youtubeIframe);
 
   Duration? get duration =>
       _duration ?? (durationSeconds > 0 ? Duration(seconds: durationSeconds) : null);
@@ -129,9 +137,32 @@ class Track implements MusicContent {
     return RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(value);
   }
 
-  PlaybackType get playbackType => PlaybackType.youtubeIframe;
+  PlaybackType get playbackType => sourceType;
 
-  bool get isYouTubeIframe => true;
+  bool get isYouTubeIframe =>
+      sourceType == PlaybackType.youtubeIframe ||
+      (streamUrl == null && resolvedYoutubeVideoId != null);
+
+  bool get hasDirectStream => streamUrl != null && streamUrl!.isNotEmpty;
+
+  /// Converts this Track to an [audio_service] MediaItem for background playback.
+  MediaItem toMediaItem({String? resolvedStreamUrl}) {
+    final effectiveStream = resolvedStreamUrl ?? streamUrl;
+    return MediaItem(
+      id: id,
+      album: album ?? (source == 'saavn' ? 'JioSaavn' : 'YouTube Music'),
+      title: title,
+      artist: artist,
+      duration: duration ?? (durationSeconds > 0 ? Duration(seconds: durationSeconds) : null),
+      artUri: bestArtworkUrl.isNotEmpty ? Uri.tryParse(bestArtworkUrl) : null,
+      extras: {
+        'source': source,
+        'streamUrl': effectiveStream,
+        'mirrors': mirrors,
+        'youtubeVideoId': resolvedYoutubeVideoId,
+      },
+    );
+  }
 
   @override
   String get providerId => resolvedYoutubeVideoId ?? id;
@@ -274,6 +305,79 @@ class Track implements MusicContent {
     );
   }
 
+  /// Creates a Track instance from a JioSaavn song JSON object.
+  factory Track.fromSaavnJson(
+    Map<String, dynamic> json, {
+    String? decryptedStreamUrl,
+  }) {
+    final moreInfo = json['more_info'] as Map<String, dynamic>?;
+
+    String artistName = '';
+    final primaryArtistsList = moreInfo?['artistMap']?['primary_artists'] as List<dynamic>?;
+    if (primaryArtistsList != null && primaryArtistsList.isNotEmpty) {
+      artistName = primaryArtistsList
+          .map((a) => a is Map ? a['name']?.toString() : null)
+          .where((name) => name != null && name.trim().isNotEmpty)
+          .join(', ');
+    }
+    if (artistName.isEmpty && json['subtitle'] != null) {
+      final subtitle = json['subtitle'].toString();
+      final parts = subtitle.split(' - ');
+      artistName = parts.first.trim();
+    }
+    if (artistName.isEmpty && moreInfo?['music'] != null) {
+      artistName = moreInfo!['music'].toString();
+    }
+    if (artistName.isEmpty) {
+      artistName = 'Unknown Artist';
+    }
+
+    final rawTitle = json['title']?.toString() ?? 'Untitled Track';
+    final cleanTitle = HtmlUnescape.unescape(rawTitle);
+    final cleanArtist = HtmlUnescape.unescape(artistName);
+
+    int duration = 0;
+    if (moreInfo?['duration'] != null) {
+      duration = int.tryParse(moreInfo!['duration'].toString()) ?? 0;
+    } else if (json['duration'] != null) {
+      duration = int.tryParse(json['duration'].toString()) ?? 0;
+    }
+
+    final baseImage = json['image']?.toString();
+    final art150 = baseImage;
+    final art500 = baseImage?.replaceAll('150x150.jpg', '500x500.jpg');
+
+    final rawAlbum = moreInfo?['album']?.toString() ?? json['album']?.toString();
+    final cleanAlbum = rawAlbum != null ? HtmlUnescape.unescape(rawAlbum) : null;
+    final lang = json['language']?.toString().trim();
+    String genre = 'Music';
+    if (lang != null && lang.isNotEmpty) {
+      genre = lang[0].toUpperCase() + lang.substring(1);
+    } else if (cleanAlbum != null && cleanAlbum.isNotEmpty) {
+      genre = cleanAlbum;
+    }
+
+    final id = json['id']?.toString() ?? '';
+
+    return Track(
+      id: id,
+      title: cleanTitle,
+      artist: cleanArtist,
+      album: cleanAlbum,
+      thumbnailUrl: art500 ?? art150,
+      artworkUrl150: art150,
+      artworkUrl480: art500,
+      artworkUrl1000: art500,
+      durationSeconds: duration,
+      duration: Duration(seconds: duration),
+      genre: genre,
+      source: 'saavn',
+      streamUrl: decryptedStreamUrl,
+      sourceType: PlaybackType.directStream,
+      metadata: Map<String, dynamic>.from(json),
+    );
+  }
+
   factory Track.fromMetadata({
     required String id,
     required String title,
@@ -309,7 +413,9 @@ class Track implements MusicContent {
       durationSeconds: durationSeconds,
       duration: Duration(seconds: durationSeconds),
       genre: genre,
-      source: 'youtube',
+      source: source,
+      streamUrl: streamUrl,
+      sourceType: sourceType != null ? PlaybackTypeWire.fromWire(sourceType) : null,
       explicit: explicit,
       metadata: metadata,
       artistId: artistId,
@@ -342,6 +448,9 @@ class Track implements MusicContent {
     int? playCount,
     DateTime? releaseDate,
     bool? isArtistVerified,
+    String? streamUrl,
+    List<String>? mirrors,
+    PlaybackType? sourceType,
   }) {
     return Track(
       id: id ?? this.id,
@@ -364,6 +473,9 @@ class Track implements MusicContent {
       playCount: playCount ?? this.playCount,
       releaseDate: releaseDate ?? this.releaseDate,
       isArtistVerified: isArtistVerified ?? this.isArtistVerified,
+      streamUrl: streamUrl ?? this.streamUrl,
+      mirrors: mirrors ?? this.mirrors,
+      sourceType: sourceType ?? this.sourceType,
     );
   }
 
@@ -375,14 +487,17 @@ class Track implements MusicContent {
       'album': album,
       'thumbnailUrl': thumbnailUrl ?? bestArtworkUrl,
       'durationSeconds': durationSeconds,
-      'source': 'youtube',
+      'source': source,
+      'streamUrl': streamUrl,
+      'mirrors': mirrors,
+      'sourceType': sourceType.wireName,
       'youtubeVideoId': resolvedYoutubeVideoId,
       'genre': genre,
       'explicit': explicit,
       'artistId': artistId,
       'albumId': albumId,
       'playCount': playCount,
-      'releaseDate': releaseDate,
+      'releaseDate': releaseDate?.toIso8601String(),
       'isArtistVerified': isArtistVerified,
       'metadata': metadata,
     };
@@ -411,7 +526,10 @@ class Track implements MusicContent {
       artworkUrl1000: art,
       durationSeconds: durationSec,
       duration: Duration(seconds: durationSec),
-      source: 'youtube',
+      source: json['source']?.toString() ?? 'youtube',
+      streamUrl: json['streamUrl']?.toString(),
+      mirrors: (json['mirrors'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
+      sourceType: PlaybackTypeWire.fromWire(json['sourceType']?.toString()),
       youtubeVideoId: vid.isNotEmpty ? vid : null,
       genre: json['genre']?.toString() ?? 'Music',
       explicit: json['explicit'] == true,

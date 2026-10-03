@@ -9,12 +9,18 @@ import 'repositories/playlist_repository.dart';
 import 'repositories/recently_played_repository.dart';
 import 'repositories/track_repository.dart';
 import 'screens/main_screen.dart';
+import 'services/audio_handler.dart';
 import 'services/music_algorithm_service.dart';
 import 'services/music_discovery_service.dart';
+import 'services/playback/direct_audio_backend.dart';
 import 'services/playback/youtube_iframe_backend.dart';
+import 'services/saavn_api_service.dart';
 import 'services/youtube/youtube_player_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/global_audio_player.dart';
+
+/// Global navigator key allowing overlays and player sheets to navigate reliably from anywhere.
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 /// Top-level application widget providing YouTube-only state management,
 /// dark app theme, and persistent embedded YouTube IFrame player surface.
@@ -27,6 +33,9 @@ class GoTuneApp extends StatefulWidget {
   final MusicAlgorithmService? algorithmService;
   final YouTubeIframeBackend youtubeIframeBackend;
   final YouTubePlayerService youtubePlayerService;
+  final GoTuneAudioHandler? audioHandler;
+  final DirectAudioBackend? directBackend;
+  final SaavnApiService? saavnService;
 
   const GoTuneApp({
     super.key,
@@ -38,6 +47,9 @@ class GoTuneApp extends StatefulWidget {
     required this.youtubePlayerService,
     this.discoveryService,
     this.algorithmService,
+    this.audioHandler,
+    this.directBackend,
+    this.saavnService,
   });
 
   @override
@@ -88,6 +100,9 @@ class _GoTuneAppState extends State<GoTuneApp> with WidgetsBindingObserver {
             repository: widget.repository,
             youtubeBackend: widget.youtubeIframeBackend,
             youtubePlayerService: widget.youtubePlayerService,
+            audioHandler: widget.audioHandler,
+            directBackend: widget.directBackend,
+            saavnService: widget.saavnService,
             recentlyPlayedRepository: widget.recentlyPlayedRepository,
             algorithmService: widget.algorithmService,
             discoveryService: widget.discoveryService,
@@ -95,6 +110,7 @@ class _GoTuneAppState extends State<GoTuneApp> with WidgetsBindingObserver {
         ),
       ],
       child: MaterialApp(
+        navigatorKey: appNavigatorKey,
         title: 'GoTune',
         debugShowCheckedModeBanner: false,
         theme: GoTuneTheme.darkTheme,

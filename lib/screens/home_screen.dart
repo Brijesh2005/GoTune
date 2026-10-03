@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/track.dart';
 import '../providers/unified_playback_controller.dart';
 import '../providers/library_provider.dart';
 import '../providers/music_provider.dart';
 import '../services/builtin_playlists_service.dart';
 import '../theme/app_colors.dart';
 import '../screens/artist_screen.dart';
+import '../screens/now_playing_screen.dart';
 import '../widgets/mix_card.dart';
+import '../widgets/network_artwork.dart';
 import '../widgets/track_card.dart';
 import '../widgets/yt_filter_chips.dart';
 import '../widgets/yt_hits_shelf.dart';
+import '../widgets/yt_music_tuner_card.dart';
 import '../widgets/yt_quick_picks_grid.dart';
 
 /// Modern YouTube-Music personal music discovery dashboard.
@@ -98,9 +102,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   }
                 },
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
 
-              // 2. Section 1: "Quick picks" 4-row grid matching YouTube Music
+              // 2. CREATE A RADIO: "Your music tuner" (Screen 1)
+              const YtMusicTunerCard(),
+              const SizedBox(height: 32),
+
+              // 3. "Listen again" 2x3 Grid (Screen 1)
+              _buildListenAgainGrid(
+                recents.isNotEmpty
+                    ? recents.map((r) => r.track).toList()
+                    : quickPicks,
+                audioPlayer,
+              ),
+              const SizedBox(height: 36),
+
+              // 4. Section 1: "Quick picks" 4-row grid matching YouTube Music
               YtQuickPicksGrid(
                 tracks: quickPicks,
                 onPlayAll: () {
@@ -614,6 +631,96 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildListenAgainGrid(List<Track> tracks, UnifiedPlaybackController audioPlayer) {
+    if (tracks.isEmpty) return const SizedBox.shrink();
+    final displayTracks = tracks.take(6).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('Listen again', subtitle: 'Most loved albums and tracks'),
+        const SizedBox(height: 14),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 16,
+            childAspectRatio: 0.72,
+          ),
+          itemCount: displayTracks.length,
+          itemBuilder: (context, index) {
+            final track = displayTracks[index];
+            final isPlaying = audioPlayer.currentTrack?.id == track.id && audioPlayer.isPlaying;
+
+            return GestureDetector(
+              onTap: () {
+                audioPlayer.playTrack(track, playlist: displayTracks, initialIndex: index);
+                NowPlayingScreen.show(context);
+              },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AspectRatio(
+                    aspectRatio: 1.0,
+                    child: Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: NetworkArtwork(
+                            imageUrl: track.thumbnailArtworkUrl,
+                            width: double.infinity,
+                            height: double.infinity,
+                            borderRadius: 14,
+                          ),
+                        ),
+                        if (isPlaying)
+                          Positioned(
+                            bottom: 6,
+                            right: 6,
+                            child: Container(
+                              width: 26,
+                              height: 26,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.black87,
+                              ),
+                              child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    track.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    track.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

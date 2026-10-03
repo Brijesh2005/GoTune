@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/library_provider.dart';
 import '../providers/unified_playback_controller.dart';
 import '../theme/app_colors.dart';
+import '../widgets/mini_player.dart';
 import '../widgets/yt_sidebar.dart';
 import '../widgets/yt_top_bar.dart';
 import 'home_screen.dart';
@@ -175,6 +176,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             // Top Bar with Hamburger for Mobile
@@ -184,28 +186,29 @@ class _MainScreenState extends State<MainScreen> {
               onSearchTapped: () => _switchTab(1),
             ),
 
-            // Content Stack
+            // Active Screen Content
             Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    bottom: 64,
-                    child: IndexedStack(
-                      index: _currentIndex,
-                      children: screens,
-                    ),
-                  ),
-
-                  // Mobile 3-tab bottom navigation
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: _buildMobileBottomBar(),
-                  ),
-                ],
+              child: IndexedStack(
+                index: _currentIndex,
+                children: screens,
               ),
             ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Floating MiniPlayer docked directly above the bottom navigation bar
+            Consumer<UnifiedPlaybackController>(
+              builder: (context, player, _) {
+                if (!player.hasActiveTrack) return const SizedBox.shrink();
+                return const MiniPlayer();
+              },
+            ),
+            _buildMobileBottomBar(),
           ],
         ),
       ),
@@ -226,7 +229,7 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           _buildMobileNavItem(0, 'Home', Icons.home_filled, Icons.home_outlined),
           _buildMobileNavItem(1, 'Explore', Icons.explore, Icons.explore_outlined),
-          _buildMobileNavItem(2, 'Library', Icons.bookmark_rounded, Icons.bookmark_border_rounded),
+          _buildMobileNavItem(2, 'Library', Icons.library_music_rounded, Icons.library_music_outlined),
         ],
       ),
     );

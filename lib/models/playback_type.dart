@@ -1,16 +1,28 @@
 /// The playback backend servicing tracks in GoTune.
-/// GoTune is YouTube-focused, using the official embedded YouTube IFrame player.
 enum PlaybackType {
   /// YouTube video played inside the official IFrame Player API hosted by a WebView.
   youtubeIframe,
+
+  /// Direct audio stream (320kbps MP4/M4A/AAC) with full background play & notification support.
+  directStream,
 }
 
 extension PlaybackTypeWire on PlaybackType {
-  String get wireName => 'youtubeIframe';
+  String get wireName {
+    switch (this) {
+      case PlaybackType.youtubeIframe:
+        return 'youtubeIframe';
+      case PlaybackType.directStream:
+        return 'directStream';
+    }
+  }
 
-  static PlaybackType fromWire(String? value) => PlaybackType.youtubeIframe;
+  static PlaybackType fromWire(String? value) {
+    if (value == 'directStream') return PlaybackType.directStream;
+    return PlaybackType.youtubeIframe;
+  }
 
-  bool get usesDirectAudioEngine => false;
+  bool get usesDirectAudioEngine => this == PlaybackType.directStream;
 
-  bool get requiresForegroundView => true;
+  bool get requiresForegroundView => this == PlaybackType.youtubeIframe;
 }

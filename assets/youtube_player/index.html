@@ -208,7 +208,7 @@
 
         var originUrl = (window.location && window.location.origin && window.location.origin.indexOf('http') === 0)
           ? window.location.origin
-          : 'https://com.gotune.gotune';
+          : 'https://www.youtube.com';
 
         var playerConfig = {
           height: '100%',
@@ -334,9 +334,18 @@
       window.getDuration = function () { return safeDurationSeconds(); };
       window.getCurrentVideoId = function () { return safeVideoId(); };
 
-      // Fallback in case onYouTubeIframeAPIReady already fired before script tag ran
+      // Ensure YouTube IFrame API is loaded
       if (window.YT && window.YT.Player) {
         window.onYouTubeIframeAPIReady();
+      } else {
+        var tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        if (firstScriptTag && firstScriptTag.parentNode) {
+          firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+        } else {
+          document.head.appendChild(tag);
+        }
       }
     })();
   </script>

@@ -71,14 +71,15 @@ class GlobalAudioPlayer extends StatelessWidget {
     );
   }
 
+  /// Vertical offset from top when YouTube surface is requested.
+  static final ValueNotifier<double> youtubeSurfaceTopOffset = ValueNotifier<double>(0.0);
+
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
         child,
-        // Positioned (not IgnorePointer) so the mini player stays tappable:
-        // a Stack only hit-tests where its children actually paint, so the
-        // route content beneath remains fully interactive.
+        // Positioned (not IgnorePointer) so the mini player stays tappable
         ValueListenableBuilder<bool>(
           valueListenable: fullPlayerVisible,
           builder: (context, isFullPlayerVisible, __) {
@@ -98,40 +99,49 @@ class GlobalAudioPlayer extends StatelessWidget {
             return ValueListenableBuilder<int>(
               valueListenable: routeDepth,
               builder: (context, depth, __) {
-                return Positioned(
+                // When at root depth (depth <= 1), MainScreen hosts MiniPlayer above the bottom bar.
+                // When pushed into a subroute without a bottom bar (depth > 1), dock MiniPlayer at bottom.
+                if (depth <= 1) return const SizedBox.shrink();
+
+                return const Positioned(
                   left: 0,
                   right: 0,
-                  bottom: depth > 1 ? 8 : bottomBarHeight,
-                  child: const MiniPlayer(),
+                  bottom: 8,
+                  child: MiniPlayer(),
                 );
               },
             );
           },
         ),
 
-        // The one and only YouTube IFrame surface.
-        //
-        // It stays laid out and painted for the whole app session so the
-        // embedded player keeps running audio when GoTune is showing an
-        // audio-first view; only its visibility changes. Destroying it would
-        // stop playback and force a fresh `YT.Player` (plus another ad break)
-        // on the next YouTube track.
+        // The persistent YouTube IFrame surface.
+        // When requested (Video mode), it aligns with the video surface in Now Playing.
+        // When not requested (Audio mode), it remains active at an on-screen compact 200x200 box
+        // with near-zero opacity so continuous background audio never pauses.
         ValueListenableBuilder<bool>(
           valueListenable: youtubeSurfaceRequested,
           builder: (context, requested, __) {
-            final screenWidth = MediaQuery.sizeOf(context).width;
-            final surfaceHeight = GlobalAudioPlayer.youtubeSurfaceHeight(screenWidth);
+            return ValueListenableBuilder<double>(
+              valueListenable: youtubeSurfaceTopOffset,
+              builder: (context, topOffset, __) {
+                final screenWidth = MediaQuery.sizeOf(context).width;
+                final surfaceHeight = GlobalAudioPlayer.youtubeSurfaceHeight(screenWidth);
 
-            return Positioned(
-              top: requested ? 0 : -9999,
-              left: 0,
-              right: requested ? 0 : null,
-              width: requested ? null : screenWidth.clamp(320.0, 480.0),
-              height: surfaceHeight,
-              child: IgnorePointer(
-                ignoring: !requested,
-                child: YouTubePlayerWidget(service: youtubePlayerService),
-              ),
+                return Positioned(
+                  top: requested ? topOffset : 0,
+                  left: 0,
+                  right: requested ? 0 : null,
+                  width: requested ? null : 200,
+                  height: requested ? surfaceHeight : 200,
+                  child: IgnorePointer(
+                    ignoring: !requested,
+                    child: Opacity(
+                      opacity: requested ? 1.0 : 0.001,
+                      child: YouTubePlayerWidget(service: youtubePlayerService),
+                    ),
+                  ),
+                );
+              },
             );
           },
         ),
@@ -142,34 +152,47 @@ class GlobalAudioPlayer extends StatelessWidget {
 
 /// Tracks navigator depth so [GlobalAudioPlayer] can dock itself correctly.
 ///
-/// Depth is derived from push/pop activity instead of route types, which keeps
-/// the observer free of any knowledge about GoTune's screens.
+/// Only [PageRoute] transitions update depth, ensuring dialogs, sheets, and popups
+/// never corrupt navigation state. When depth is 1 (MainScreen), MiniPlayer docks
+/// above the bottom navigation bar; when depth > 1 (detail routes), it docks at bottom: 8.
 class AppNavigatorObserver extends NavigatorObserver {
+  final List<Route<dynamic>> _routeStack = [];
+
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    _syncDepth(() => GlobalAudioPlayer.routeDepth.value + 1);
+    if (route is PageRoute) {
+      _routeStack.add(route);
+      _syncDepth();
+    }
   }
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    _syncDepth(() {
-      final depth = GlobalAudioPlayer.routeDepth.value;
-      return depth > 1 ? depth - 1 : 1;
-    });
+    if (route is PageRoute) {
+      _routeStack.remove(route);
+      _syncDepth();
+    }
   }
 
   @override
   void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    _syncDepth(() {
-      final depth = GlobalAudioPlayer.routeDepth.value;
-      return depth > 1 ? depth - 1 : 1;
-    });
+    if (route is PageRoute) {
+      _routeStack.remove(route);
+      _syncDepth();
+    }
   }
 
-  void _syncDepth(int Function() compute) {
-    final next = compute();
-    if (next != GlobalAudioPlayer.routeDepth.value) {
-      GlobalAudioPlayer.routeDepth.value = next;
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    if (oldRoute is PageRoute) _routeStack.remove(oldRoute);
+    if (newRoute is PageRoute) _routeStack.add(newRoute);
+    _syncDepth();
+  }
+
+  void _syncDepth() {
+    final depth = _routeStack.isEmpty ? 1 : _routeStack.length;
+    if (depth != GlobalAudioPlayer.routeDepth.value) {
+      GlobalAudioPlayer.routeDepth.value = depth;
     }
   }
 }

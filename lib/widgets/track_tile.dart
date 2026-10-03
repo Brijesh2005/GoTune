@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/track.dart';
 import '../providers/unified_playback_controller.dart';
 import '../providers/library_provider.dart';
+import '../screens/now_playing_screen.dart';
 import '../theme/app_colors.dart';
 import 'add_to_playlist_sheet.dart';
 import 'animated_equalizer.dart';
@@ -49,6 +50,7 @@ class TrackTile extends StatelessWidget {
             } else {
               playerProvider.playWithSmartRadio(track);
             }
+            NowPlayingScreen.show(context);
           },
       borderRadius: BorderRadius.circular(12),
       onLongPress: () => SongActionSheet.show(context, track),

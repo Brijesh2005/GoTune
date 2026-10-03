@@ -3,17 +3,25 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../models/playback_type.dart';
 import '../models/track.dart';
 import '../repositories/recently_played_repository.dart';
 import '../repositories/track_repository.dart';
+import '../services/audio_handler.dart';
 import '../services/music_algorithm_service.dart';
 import '../services/music_discovery_service.dart';
+import '../services/playback/direct_audio_backend.dart';
 import '../services/playback/playback_backend.dart';
 import '../services/playback/youtube_iframe_backend.dart';
+import '../services/saavn_api_service.dart';
 import '../services/youtube/youtube_player_service.dart';
 
 /// Single source of truth for playback in GoTune.
-/// Coordinates playback through the official embedded YouTube IFrame Player.
+/// Dual-Engine architecture:
+/// 1. DirectAudioBackend (via just_audio & audio_service):
+///    320kbps streams, 100% playable songs, lockscreen controls, and true background play.
+/// 2. YouTubeIframeBackend (via WebView official YT IFrame Player API):
+///    Embedded YouTube video when user selects "Video" mode.
 class UnifiedPlaybackController extends ChangeNotifier {
   final TrackRepository _repository;
   final RecentlyPlayedRepository? _recentlyPlayedRepository;
@@ -21,6 +29,9 @@ class UnifiedPlaybackController extends ChangeNotifier {
   late final MusicAlgorithmService _algorithmService;
   final YouTubeIframeBackend _youtubeBackend;
   final YouTubePlayerService _youtubePlayerService;
+  final DirectAudioBackend _directBackend;
+  final GoTuneAudioHandler _audioHandler;
+  final SaavnApiService _saavnService;
 
   // --- Queue ---
   final List<Track> _queue = [];
@@ -32,6 +43,7 @@ class UnifiedPlaybackController extends ChangeNotifier {
   // --- Playback state ---
   UnifiedPlaybackState _state = const UnifiedPlaybackState.initial();
   Track? _currentTrack;
+  bool _isVideoMode = false;
 
   // High-frequency scrubbers
   final ValueNotifier<Duration> positionNotifier = ValueNotifier(Duration.zero);
@@ -41,6 +53,17 @@ class UnifiedPlaybackController extends ChangeNotifier {
   bool _isGeneratingRadio = false;
   bool _autoPlayRadio = true;
   String? _radioSeedArtist;
+  String _radioVariety = 'Medium';
+  String _radioSongSelection = 'Discover';
+  List<String> _radioFilters = ['Popular'];
+  List<String> _tunedArtists = ['Lil Nas X', 'Doja Cat', 'Billie Eilish'];
+  String? _activeRadioTitle;
+
+  String get radioVariety => _radioVariety;
+  String get radioSongSelection => _radioSongSelection;
+  List<String> get radioFilters => List.unmodifiable(_radioFilters);
+  List<String> get tunedArtists => List.unmodifiable(_tunedArtists);
+  String? get activeRadioTitle => _activeRadioTitle;
 
   void toggleAutoPlayRadio() {
     _autoPlayRadio = !_autoPlayRadio;
@@ -60,21 +83,29 @@ class UnifiedPlaybackController extends ChangeNotifier {
 
   // --- Subscriptions ---
   StreamSubscription<PlaybackBackendEvent>? _youtubeEvents;
+  StreamSubscription<PlaybackBackendEvent>? _directEvents;
+  StreamSubscription<Duration>? _playerPosSub;
+  StreamSubscription<Duration?>? _playerDurSub;
+  StreamSubscription<Duration>? _playerBufSub;
   Timer? _positionTicker;
 
   UnifiedPlaybackController({
     required TrackRepository repository,
     required YouTubePlayerService youtubePlayerService,
     YouTubeIframeBackend? youtubeBackend,
+    DirectAudioBackend? directBackend,
+    GoTuneAudioHandler? audioHandler,
+    SaavnApiService? saavnService,
     RecentlyPlayedRepository? recentlyPlayedRepository,
     MusicAlgorithmService? algorithmService,
     MusicDiscoveryService? discoveryService,
-    dynamic audioHandler,
-    dynamic directBackend,
     dynamic audioSourceResolver,
   })  : _repository = repository,
         _youtubePlayerService = youtubePlayerService,
         _youtubeBackend = youtubeBackend ?? YouTubeIframeBackend(service: youtubePlayerService),
+        _audioHandler = audioHandler ?? GoTuneAudioHandler.instance,
+        _directBackend = directBackend ?? DirectAudioBackend(audioHandler: audioHandler ?? GoTuneAudioHandler.instance),
+        _saavnService = saavnService ?? SaavnApiService(),
         _recentlyPlayedRepository = recentlyPlayedRepository {
     _algorithmService = algorithmService ?? MusicAlgorithmService(repository: repository);
     _discoveryService = discoveryService ??
@@ -85,7 +116,7 @@ class UnifiedPlaybackController extends ChangeNotifier {
           cache: repository.cacheService,
         );
 
-    _bindBackend();
+    _bindBackends();
   }
 
   // ==========================================
@@ -109,8 +140,10 @@ class UnifiedPlaybackController extends ChangeNotifier {
   Duration get duration => _state.duration;
   Duration get bufferedPosition => _state.bufferedPosition;
 
-  bool get isYouTubeIframePlayback => true;
-  String? get currentYoutubeVideoId => _youtubeBackend.videoId;
+  bool get isVideoMode => _isVideoMode;
+  bool get isYouTubeIframePlayback => _isVideoMode || _state.backendId == YouTubeIframeBackend.id;
+  bool get supportsBackgroundPlayback => _state.backendId == DirectAudioBackend.id;
+  String? get currentYoutubeVideoId => _youtubeBackend.videoId ?? _currentTrack?.resolvedYoutubeVideoId;
 
   bool get isAutoplayBlocked =>
       _youtubeBackend.autoplayBlocked || _youtubePlayerService.autoplayBlocked;
@@ -120,7 +153,7 @@ class UnifiedPlaybackController extends ChangeNotifier {
     await _youtubeBackend.retryPlayback();
   }
 
-  bool get activeBackendRequiresForegroundView => true;
+  bool get activeBackendRequiresForegroundView => _isVideoMode;
   int? get youtubeErrorCode => _youtubePlayerService.lastErrorCode;
 
   bool get isShuffle => _isShuffle;
@@ -146,16 +179,51 @@ class UnifiedPlaybackController extends ChangeNotifier {
   MusicDiscoveryService get discoveryService => _discoveryService;
   YouTubeIframeBackend get youtubeBackend => _youtubeBackend;
   YouTubePlayerService get youtubePlayerService => _youtubePlayerService;
+  DirectAudioBackend get directBackend => _directBackend;
+  GoTuneAudioHandler get audioHandler => _audioHandler;
+
+  PlaybackBackend get _activeBackend =>
+      (_state.backendId == DirectAudioBackend.id) ? _directBackend : _youtubeBackend;
 
   // ==========================================
   // WIRING
   // ==========================================
 
-  void _bindBackend() {
+  void _bindBackends() {
     _youtubeEvents = _youtubeBackend.events.listen(_onYouTubeEvent);
+    _directEvents = _directBackend.events.listen(_onDirectEvent);
+
+    // Direct audio player high-frequency streams
+    _playerPosSub = _audioHandler.player.positionStream.listen((pos) {
+      if (!_isVideoMode && _state.backendId == DirectAudioBackend.id) {
+        positionNotifier.value = pos;
+        _state = _state.copyWith(position: pos);
+      }
+    });
+
+    _playerDurSub = _audioHandler.player.durationStream.listen((dur) {
+      if (!_isVideoMode && _state.backendId == DirectAudioBackend.id && dur != null) {
+        _state = _state.copyWith(duration: dur);
+      }
+    });
+
+    _playerBufSub = _audioHandler.player.bufferedPositionStream.listen((buf) {
+      if (!_isVideoMode && _state.backendId == DirectAudioBackend.id) {
+        bufferedNotifier.value = buf;
+        _state = _state.copyWith(bufferedPosition: buf);
+      }
+    });
+
+    // Auto-fetch more songs when queue nears end
+    _audioHandler.onQueueNearEnd = () {
+      if (_autoPlayRadio && _currentTrack != null) {
+        _populateSmartRadio(_currentTrack!);
+      }
+    };
   }
 
-  void _onYouTubeEvent(PlaybackBackendEvent event) {
+  void _onDirectEvent(PlaybackBackendEvent event) {
+    if (_isVideoMode) return;
     switch (event.type) {
       case PlaybackBackendEventType.ready:
         _state = _state.copyWith(
@@ -172,6 +240,56 @@ class UnifiedPlaybackController extends ChangeNotifier {
         _state = _state.copyWith(
           isPlaying: true,
           processingState: PlaybackProcessingState.ready,
+          backendId: DirectAudioBackend.id,
+          clearError: true,
+        );
+        break;
+      case PlaybackBackendEventType.paused:
+        _state = _state.copyWith(
+          isPlaying: false,
+          processingState: PlaybackProcessingState.ready,
+        );
+        break;
+      case PlaybackBackendEventType.completed:
+        _state = _state.copyWith(
+          isPlaying: false,
+          processingState: PlaybackProcessingState.completed,
+        );
+        _onTrackCompleted();
+        break;
+      case PlaybackBackendEventType.error:
+        _state = _state.copyWith(
+          isPlaying: false,
+          processingState: PlaybackProcessingState.error,
+          errorMessage: event.message ?? 'Direct audio playback error.',
+        );
+        break;
+      default:
+        break;
+    }
+    notifyListeners();
+  }
+
+  void _onYouTubeEvent(PlaybackBackendEvent event) {
+    if (!_isVideoMode && _state.backendId == DirectAudioBackend.id) return;
+
+    switch (event.type) {
+      case PlaybackBackendEventType.ready:
+        _state = _state.copyWith(
+          processingState: PlaybackProcessingState.ready,
+          clearError: true,
+        );
+        break;
+      case PlaybackBackendEventType.buffering:
+        _state = _state.copyWith(
+          processingState: PlaybackProcessingState.buffering,
+        );
+        break;
+      case PlaybackBackendEventType.playing:
+        _state = _state.copyWith(
+          isPlaying: true,
+          processingState: PlaybackProcessingState.ready,
+          backendId: YouTubeIframeBackend.id,
           clearError: true,
         );
         _startPositionTicker();
@@ -199,12 +317,19 @@ class UnifiedPlaybackController extends ChangeNotifier {
         _stopPositionTicker();
         break;
       case PlaybackBackendEventType.error:
-        _state = _state.copyWith(
-          isPlaying: false,
-          processingState: PlaybackProcessingState.error,
-          errorMessage: event.message ?? 'Unable to play this YouTube video.',
-        );
-        _stopPositionTicker();
+        debugPrint('[UnifiedPlaybackController] YouTube error (${event.errorCode}): ${event.message}');
+        // If YouTube throws Error 150/101 (embed blocked by record label), automatically fallback to Direct Audio!
+        if (_currentTrack != null) {
+          _fallbackToDirectAudio(_currentTrack!);
+        } else {
+          _state = _state.copyWith(
+            isPlaying: false,
+            processingState: PlaybackProcessingState.error,
+            errorMessage: event.message ?? 'Unable to play this YouTube video.',
+          );
+          _stopPositionTicker();
+          notifyListeners();
+        }
         break;
     }
     notifyListeners();
@@ -281,10 +406,73 @@ class UnifiedPlaybackController extends ChangeNotifier {
     _recentlyPlayedRepository?.recordTrack(track);
 
     var trackToPlay = track;
+
+    // 1. Direct stream available: play immediately via DirectAudioBackend (instant start)
+    if (!_isVideoMode && trackToPlay.streamUrl != null && trackToPlay.streamUrl!.isNotEmpty) {
+      await _youtubeBackend.stop();
+      _stopPositionTicker();
+      _state = _state.copyWith(backendId: DirectAudioBackend.id);
+      try {
+        await _directBackend.load(trackToPlay);
+        await _directBackend.play();
+        return;
+      } catch (e) {
+        debugPrint('[UnifiedPlaybackController] Direct audio load error: $e, falling back to YouTube');
+      }
+    }
+
+    // 2. YouTube-backed track: stream immediately via YouTube IFrame (instant start for curated tracks)
+    if (_isVideoMode || (trackToPlay.resolvedYoutubeVideoId != null && trackToPlay.resolvedYoutubeVideoId!.isNotEmpty)) {
+      await _directBackend.stop();
+      _state = _state.copyWith(backendId: YouTubeIframeBackend.id);
+      try {
+        await _youtubeBackend.load(trackToPlay, autoplay: true);
+        return;
+      } catch (e) {
+        debugPrint('[UnifiedPlaybackController] YouTube playback error: $e, falling back to direct resolution');
+      }
+    }
+
+    // 3. Unresolved track: attempt fast direct audio stream resolution
+    if (!_isVideoMode && (trackToPlay.streamUrl == null || trackToPlay.streamUrl!.isEmpty)) {
+      try {
+        final resolved = await _saavnService
+            .resolveTrackStream(trackToPlay.title, trackToPlay.artist)
+            .timeout(const Duration(milliseconds: 1500), onTimeout: () => null);
+        if (resolved != null && resolved.streamUrl != null && resolved.streamUrl!.isNotEmpty) {
+          trackToPlay = trackToPlay.copyWith(
+            streamUrl: resolved.streamUrl,
+            sourceType: PlaybackType.directStream,
+            thumbnailUrl: (trackToPlay.thumbnailUrl == null || trackToPlay.thumbnailUrl!.isEmpty)
+                ? resolved.thumbnailUrl
+                : trackToPlay.thumbnailUrl,
+          );
+          _queue[_currentIndex] = trackToPlay;
+          _currentTrack = trackToPlay;
+
+          await _youtubeBackend.stop();
+          _stopPositionTicker();
+          _state = _state.copyWith(backendId: DirectAudioBackend.id);
+          try {
+            await _directBackend.load(trackToPlay);
+            await _directBackend.play();
+            return;
+          } catch (e) {
+            debugPrint('[UnifiedPlaybackController] Direct audio load error: $e');
+          }
+        }
+      } catch (e) {
+        debugPrint('[UnifiedPlaybackController] Saavn resolution error: $e');
+      }
+    }
+
+    // 4. Resolve YouTube Video ID with timeout
     if (trackToPlay.resolvedYoutubeVideoId == null || trackToPlay.resolvedYoutubeVideoId!.isEmpty) {
       try {
         final query = '${trackToPlay.title} ${trackToPlay.artist}'.trim();
-        final searchResults = await _repository.searchTracks(query, limit: 1);
+        final searchResults = await _repository
+            .searchTracks(query, limit: 1)
+            .timeout(const Duration(milliseconds: 2000), onTimeout: () => []);
         if (searchResults.isNotEmpty && searchResults.first.resolvedYoutubeVideoId != null) {
           trackToPlay = trackToPlay.copyWith(
             youtubeVideoId: searchResults.first.resolvedYoutubeVideoId,
@@ -297,16 +485,147 @@ class UnifiedPlaybackController extends ChangeNotifier {
       }
     }
 
+    // 5. Final attempt via YouTube backend
+    await _directBackend.stop();
+    _state = _state.copyWith(backendId: YouTubeIframeBackend.id);
     try {
       await _youtubeBackend.load(trackToPlay, autoplay: true);
     } catch (e) {
+      debugPrint('[UnifiedPlaybackController] YouTube playback error: $e');
       _state = _state.copyWith(
         processingState: PlaybackProcessingState.error,
-        errorMessage: 'Failed to play YouTube track: $e',
+        errorMessage: 'Unable to stream this track: $e',
       );
       notifyListeners();
     }
   }
+
+  Future<void> _fallbackToDirectAudio(Track track) async {
+    try {
+      _isVideoMode = false;
+      _stopPositionTicker();
+      await _youtubeBackend.stop();
+
+      var trackToPlay = track;
+      if (trackToPlay.streamUrl == null || trackToPlay.streamUrl!.isEmpty) {
+        final resolved = await _saavnService.resolveTrackStream(track.title, track.artist);
+        if (resolved != null && resolved.streamUrl != null) {
+          trackToPlay = trackToPlay.copyWith(
+            streamUrl: resolved.streamUrl,
+            sourceType: PlaybackType.directStream,
+          );
+          if (_currentIndex >= 0 && _currentIndex < _queue.length) {
+            _queue[_currentIndex] = trackToPlay;
+          }
+          _currentTrack = trackToPlay;
+        }
+      }
+
+      if (trackToPlay.streamUrl != null && trackToPlay.streamUrl!.isNotEmpty) {
+        _state = _state.copyWith(
+          currentTrack: trackToPlay,
+          backendId: DirectAudioBackend.id,
+          processingState: PlaybackProcessingState.loading,
+          clearError: true,
+        );
+        notifyListeners();
+        await _directBackend.load(trackToPlay);
+        await _directBackend.play();
+        return;
+      }
+    } catch (e) {
+      debugPrint('[UnifiedPlaybackController] Fallback error: $e');
+    }
+
+    _state = _state.copyWith(
+      isPlaying: false,
+      processingState: PlaybackProcessingState.error,
+      errorMessage: 'This song is blocked for embedding and no alternate audio stream was found.',
+    );
+    notifyListeners();
+  }
+
+  // --- Song | Video Mode Switching ---
+
+  Future<void> setVideoMode(bool isVideo) async {
+    if (_isVideoMode == isVideo) return;
+    _isVideoMode = isVideo;
+    notifyListeners();
+
+    if (_currentTrack == null) return;
+
+    final currentPos = position;
+    if (_isVideoMode) {
+      // Switching from Song to Video
+      await _directBackend.pause();
+      _state = _state.copyWith(backendId: YouTubeIframeBackend.id);
+      notifyListeners();
+
+      var trackToPlay = _currentTrack!;
+      if (trackToPlay.resolvedYoutubeVideoId == null || trackToPlay.resolvedYoutubeVideoId!.isEmpty) {
+        try {
+          final query = '${trackToPlay.title} ${trackToPlay.artist}'.trim();
+          final searchResults = await _repository
+              .searchTracks(query, limit: 1)
+              .timeout(const Duration(milliseconds: 2000), onTimeout: () => []);
+          if (searchResults.isNotEmpty && searchResults.first.resolvedYoutubeVideoId != null) {
+            trackToPlay = trackToPlay.copyWith(
+              youtubeVideoId: searchResults.first.resolvedYoutubeVideoId,
+            );
+            if (_currentIndex >= 0 && _currentIndex < _queue.length) {
+              _queue[_currentIndex] = trackToPlay;
+            }
+            _currentTrack = trackToPlay;
+          }
+        } catch (e) {
+          debugPrint('[UnifiedPlaybackController] Video resolve error: $e');
+        }
+      }
+
+      await _youtubeBackend.load(trackToPlay, autoplay: true);
+      if (currentPos > Duration.zero) {
+        await _youtubeBackend.seek(currentPos);
+      }
+    } else {
+      // Switching from Video to Song
+      await _youtubeBackend.pause();
+      _stopPositionTicker();
+      _state = _state.copyWith(backendId: DirectAudioBackend.id);
+      notifyListeners();
+
+      var trackToPlay = _currentTrack!;
+      if (trackToPlay.streamUrl == null || trackToPlay.streamUrl!.isEmpty) {
+        final resolved = await _saavnService.resolveTrackStream(trackToPlay.title, trackToPlay.artist);
+        if (resolved != null && resolved.streamUrl != null) {
+          trackToPlay = trackToPlay.copyWith(
+            streamUrl: resolved.streamUrl,
+            sourceType: PlaybackType.directStream,
+          );
+          if (_currentIndex >= 0 && _currentIndex < _queue.length) {
+            _queue[_currentIndex] = trackToPlay;
+          }
+          _currentTrack = trackToPlay;
+        }
+      }
+
+      if (trackToPlay.streamUrl != null && trackToPlay.streamUrl!.isNotEmpty) {
+        await _directBackend.load(trackToPlay);
+        if (currentPos > Duration.zero) {
+          await _directBackend.seek(currentPos);
+        }
+        await _directBackend.play();
+      } else {
+        // Direct stream unavailable, continue with YouTube audio
+        _isVideoMode = true;
+        await _youtubeBackend.play();
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> toggleVideoMode() => setVideoMode(!_isVideoMode);
+
+  // --- Transport controls ---
 
   Future<void> play() async {
     if (_currentTrack == null && _queue.isNotEmpty) {
@@ -314,11 +633,11 @@ class UnifiedPlaybackController extends ChangeNotifier {
       await _loadAndPlayCurrent();
       return;
     }
-    await _youtubeBackend.play();
+    await _activeBackend.play();
   }
 
   Future<void> pause() async {
-    await _youtubeBackend.pause();
+    await _activeBackend.pause();
   }
 
   Future<void> togglePlayPause() async {
@@ -332,18 +651,22 @@ class UnifiedPlaybackController extends ChangeNotifier {
   Future<void> seekTo(Duration position) async {
     positionNotifier.value = position;
     _state = _state.copyWith(position: position);
-    await _youtubeBackend.seek(position);
+    await _activeBackend.seek(position);
   }
 
   Future<void> stop() async {
     _stopPositionTicker();
+    await _directBackend.stop();
     await _youtubeBackend.stop();
     _state = const UnifiedPlaybackState.initial();
     positionNotifier.value = Duration.zero;
     notifyListeners();
   }
 
-  Future<void> setVolume(int volume) => _youtubeBackend.setVolume(volume);
+  Future<void> setVolume(int volume) async {
+    await _directBackend.setVolume(volume);
+    await _youtubeBackend.setVolume(volume);
+  }
 
   // ==========================================
   // QUEUE MANAGEMENT
@@ -408,56 +731,65 @@ class UnifiedPlaybackController extends ChangeNotifier {
     if (index < 0 || index >= _queue.length) return;
     _currentIndex = index;
     await _loadAndPlayCurrent();
-  }
-
-  void addToQueue(Track track) {
-    if (_queue.any((t) => t.id == track.id)) return;
-    _queue.add(track);
-    _unshuffledQueue.add(track);
-    if (_currentTrack == null) {
-      _currentIndex = 0;
-      _currentTrack = track;
-    }
     notifyListeners();
   }
 
-  void playNext(Track track) {
-    if (_queue.isEmpty) {
-      playTrack(track);
-      return;
-    }
-    _queue.removeWhere((t) => t.id == track.id);
-    _unshuffledQueue.removeWhere((t) => t.id == track.id);
-    _queue.insert(_currentIndex + 1, track);
-    _unshuffledQueue.insert(_currentIndex + 1, track);
-    notifyListeners();
-  }
+  Future<void> skipToQueueItem(int index) => skipToQueueIndex(index);
 
-  Future<void> addPlaylistToQueue(List<Track> tracks, {int startIndex = 0}) async {
+  Future<void> addPlaylistToQueue(
+    List<Track> tracks, {
+    int startIndex = 0,
+    bool isExplicitYoutubeSelection = false,
+  }) async {
     if (tracks.isEmpty) return;
+
     _queue.clear();
     _queue.addAll(tracks);
     _unshuffledQueue = List.from(_queue);
     _currentIndex = startIndex.clamp(0, _queue.length - 1);
+
+    if (_isShuffle) {
+      _applyShuffleKeepingCurrent();
+    }
+
     await _loadAndPlayCurrent();
     notifyListeners();
   }
 
+  void addToQueue(Track track) {
+    _queue.add(track);
+    _unshuffledQueue.add(track);
+    notifyListeners();
+  }
+
+  void addTrackToQueue(Track track) => addToQueue(track);
+
+  void playNext(Track track) {
+    final insertIndex = (_currentIndex + 1).clamp(0, _queue.length);
+    _queue.insert(insertIndex, track);
+    _unshuffledQueue.insert(insertIndex, track);
+    notifyListeners();
+  }
+
+  void insertNextInQueue(Track track) => playNext(track);
+
   void removeFromQueue(int index) {
     if (index < 0 || index >= _queue.length) return;
-    final removingCurrent = index == _currentIndex;
-    final track = _queue.removeAt(index);
-    _unshuffledQueue.remove(track);
 
-    if (removingCurrent) {
+    final removedTrack = _queue.removeAt(index);
+    _unshuffledQueue.remove(removedTrack);
+
+    if (index < _currentIndex) {
+      _currentIndex--;
+    } else if (index == _currentIndex) {
       if (_queue.isEmpty) {
         stop();
-      } else {
-        _currentIndex = _currentIndex.clamp(0, _queue.length - 1);
-        _loadAndPlayCurrent();
+        return;
       }
-    } else if (index < _currentIndex) {
-      _currentIndex--;
+      if (_currentIndex >= _queue.length) {
+        _currentIndex = _queue.length - 1;
+      }
+      _loadAndPlayCurrent();
     }
     notifyListeners();
   }
@@ -469,15 +801,13 @@ class UnifiedPlaybackController extends ChangeNotifier {
     if (oldIndex < newIndex) {
       newIndex -= 1;
     }
-    final item = _queue.removeAt(oldIndex);
-    _queue.insert(newIndex, item);
 
-    if (_currentIndex == oldIndex) {
-      _currentIndex = newIndex;
-    } else if (oldIndex < _currentIndex && newIndex >= _currentIndex) {
-      _currentIndex--;
-    } else if (oldIndex > _currentIndex && newIndex <= _currentIndex) {
-      _currentIndex++;
+    final currentTrackBefore = _currentTrack;
+    final track = _queue.removeAt(oldIndex);
+    _queue.insert(newIndex, track);
+
+    if (currentTrackBefore != null) {
+      _currentIndex = _queue.indexOf(currentTrackBefore);
     }
 
     notifyListeners();
@@ -491,45 +821,77 @@ class UnifiedPlaybackController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearUpcomingQueue() {
+    if (_currentIndex >= 0 && _currentIndex < _queue.length) {
+      final current = _queue[_currentIndex];
+      _queue.clear();
+      _queue.add(current);
+      _unshuffledQueue = [current];
+      _currentIndex = 0;
+      notifyListeners();
+    }
+  }
+
+  // --- Shuffle & Repeat ---
+
   void toggleShuffle() {
     _isShuffle = !_isShuffle;
     if (_isShuffle) {
-      if (_queue.isNotEmpty) {
-        final current = _currentTrack;
-        final others = _queue.where((t) => t.id != current?.id).toList();
-        others.shuffle(Random());
-        _queue.clear();
-        if (current != null) _queue.add(current);
-        _queue.addAll(others);
-        _currentIndex = current != null ? 0 : -1;
-      }
+      _applyShuffleKeepingCurrent();
     } else {
-      if (_unshuffledQueue.isNotEmpty) {
-        final current = _currentTrack;
-        _queue.clear();
-        _queue.addAll(_unshuffledQueue);
-        _currentIndex = current != null ? _queue.indexWhere((t) => t.id == current.id) : -1;
+      final current = _currentTrack;
+      _queue.clear();
+      _queue.addAll(_unshuffledQueue);
+      if (current != null) {
+        _currentIndex = _queue.indexOf(current);
       }
     }
     notifyListeners();
   }
 
+  void _applyShuffleKeepingCurrent() {
+    if (_queue.isEmpty) return;
+    final current = _currentTrack;
+    final others = _queue.where((t) => t.id != current?.id).toList();
+    others.shuffle(Random());
+
+    _queue.clear();
+    if (current != null) {
+      _queue.add(current);
+      _queue.addAll(others);
+      _currentIndex = 0;
+    } else {
+      _queue.addAll(others);
+    }
+  }
+
   void toggleRepeatMode() {
-    _repeatMode = switch (_repeatMode) {
-      PlaybackRepeatMode.none => PlaybackRepeatMode.all,
-      PlaybackRepeatMode.all => PlaybackRepeatMode.one,
-      PlaybackRepeatMode.one => PlaybackRepeatMode.none,
-    };
+    switch (_repeatMode) {
+      case PlaybackRepeatMode.none:
+        _repeatMode = PlaybackRepeatMode.all;
+        break;
+      case PlaybackRepeatMode.all:
+        _repeatMode = PlaybackRepeatMode.one;
+        break;
+      case PlaybackRepeatMode.one:
+        _repeatMode = PlaybackRepeatMode.none;
+        break;
+    }
     notifyListeners();
   }
 
-  void _onTrackCompleted() {
-    skipToNext();
-  }
+  // ==========================================
+  // COMPLETION & RADIO
+  // ==========================================
 
-  // ==========================================
-  // SMART RADIO (AUTOPLAY)
-  // ==========================================
+  Future<void> _onTrackCompleted() async {
+    if (_repeatMode == PlaybackRepeatMode.one) {
+      await seekTo(Duration.zero);
+      await play();
+      return;
+    }
+    await skipToNext();
+  }
 
   Future<void> startSongRadio(Track seed) async {
     _isGeneratingRadio = true;
@@ -537,43 +899,39 @@ class UnifiedPlaybackController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final related = await _repository.getRelatedTracks(seed, limit: 15);
-      final ranked = await _algorithmService.rankCandidates(
-        candidates: related,
+      final radioSet = await _discoveryService.getRadioCandidates(seed, limit: 20);
+      final tracks = await _algorithmService.rankCandidates(
+        candidates: radioSet.candidates,
         seed: seed,
-        limit: 12,
+        limit: 20,
       );
-
-      _queue.clear();
-      _queue.add(seed);
-      _queue.addAll(ranked);
-      _unshuffledQueue = List.from(_queue);
-      _currentIndex = 0;
-      await _loadAndPlayCurrent();
+      if (tracks.isNotEmpty) {
+        await addPlaylistToQueue([seed, ...tracks], startIndex: 0);
+      } else {
+        await playTrack(seed);
+      }
     } catch (e) {
       debugPrint('[UnifiedPlaybackController] startSongRadio error: $e');
+      await playTrack(seed);
     } finally {
       _isGeneratingRadio = false;
       notifyListeners();
     }
   }
 
-  Future<void> startArtistRadio(String artist, {Track? seedTrack}) async {
+  Future<void> startArtistRadio(String artistName, {Track? seedTrack}) async {
     _isGeneratingRadio = true;
-    _radioSeedArtist = artist;
+    _radioSeedArtist = artistName;
     notifyListeners();
 
     try {
-      var tracks = await _repository.getArtistTracks(artist, limit: 15);
       if (seedTrack != null) {
-        tracks = [seedTrack, ...tracks.where((t) => t.id != seedTrack.id)];
-      }
-      if (tracks.isNotEmpty) {
-        _queue.clear();
-        _queue.addAll(tracks);
-        _unshuffledQueue = List.from(_queue);
-        _currentIndex = 0;
-        await _loadAndPlayCurrent();
+        await startSongRadio(seedTrack);
+      } else {
+        final artistResults = await _repository.searchTracks(artistName, limit: 20);
+        if (artistResults.isNotEmpty) {
+          await addPlaylistToQueue(artistResults, startIndex: 0);
+        }
       }
     } catch (e) {
       debugPrint('[UnifiedPlaybackController] startArtistRadio error: $e');
@@ -588,16 +946,61 @@ class UnifiedPlaybackController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final tracks = await _repository.getTrendingTracks(genre: genre, limit: 20);
-      if (tracks.isNotEmpty) {
-        _queue.clear();
-        _queue.addAll(tracks);
-        _unshuffledQueue = List.from(_queue);
-        _currentIndex = 0;
-        await _loadAndPlayCurrent();
+      final genreResults = await _repository.searchTracks('$genre hits', limit: 20);
+      if (genreResults.isNotEmpty) {
+        await addPlaylistToQueue(genreResults, startIndex: 0);
       }
     } catch (e) {
       debugPrint('[UnifiedPlaybackController] startGenreRadio error: $e');
+    } finally {
+      _isGeneratingRadio = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> startTunedRadio({
+    required List<String> seedArtists,
+    required String variety,
+    required String songSelection,
+    required List<String> filters,
+  }) async {
+    _isGeneratingRadio = true;
+    _tunedArtists = List.from(seedArtists);
+    _radioVariety = variety;
+    _radioSongSelection = songSelection;
+    _radioFilters = List.from(filters);
+    _activeRadioTitle = '${seedArtists.join(', ')} Radio • $songSelection';
+    notifyListeners();
+
+    try {
+      final List<Track> collectedTracks = [];
+      final int perArtistLimit = variety == 'Low' ? 15 : (variety == 'High' ? 6 : 10);
+      for (final artist in seedArtists) {
+        final query = filters.isNotEmpty
+            ? '$artist ${filters.first}'
+            : (songSelection == 'Discover' ? '$artist hits' : artist);
+        final results = await _repository.searchTracks(query, limit: perArtistLimit);
+        collectedTracks.addAll(results);
+      }
+
+      final Set<String> seen = {};
+      final List<Track> uniqueTracks = [];
+      for (final t in collectedTracks) {
+        if (!seen.contains(t.id)) {
+          seen.add(t.id);
+          uniqueTracks.add(t);
+        }
+      }
+
+      if (songSelection == 'Discover' || songSelection == 'Blend') {
+        uniqueTracks.shuffle();
+      }
+
+      if (uniqueTracks.isNotEmpty) {
+        await addPlaylistToQueue(uniqueTracks, startIndex: 0);
+      }
+    } catch (e) {
+      debugPrint('[UnifiedPlaybackController] startTunedRadio error: $e');
     } finally {
       _isGeneratingRadio = false;
       notifyListeners();
@@ -683,6 +1086,10 @@ class UnifiedPlaybackController extends ChangeNotifier {
   @override
   void dispose() {
     _youtubeEvents?.cancel();
+    _directEvents?.cancel();
+    _playerPosSub?.cancel();
+    _playerDurSub?.cancel();
+    _playerBufSub?.cancel();
     _positionTicker?.cancel();
     _sleepTimer?.cancel();
     _sleepCountdownTimer?.cancel();

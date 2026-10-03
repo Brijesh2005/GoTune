@@ -186,7 +186,7 @@ class _YouTubePlayerWidgetState extends State<YouTubePlayerWidget>
 
     try {
       final html = await rootBundle.loadString(YouTubePlayerWidget.playerAsset);
-      await controller.loadHtmlString(html, baseUrl: 'https://com.gotune.gotune');
+      await controller.loadHtmlString(html, baseUrl: 'https://www.youtube.com');
     } catch (e) {
       debugPrint('[YouTubePlayerWidget] loadHtmlString fallback: $e');
       await controller.loadFlutterAsset(YouTubePlayerWidget.playerAsset);

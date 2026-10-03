@@ -45,14 +45,11 @@ class NetworkArtwork extends StatelessWidget {
                 maxHeightDiskCache: 500,
                 placeholder: (context, url) => Container(
                   color: AppColors.surfaceElevated,
-                  child: const Center(
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AppColors.primaryLight,
-                      ),
+                  child: Center(
+                    child: Icon(
+                      Icons.music_note_rounded,
+                      color: const Color(0x33FFFFFF),
+                      size: width * 0.35,
                     ),
                   ),
                 ),

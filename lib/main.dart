@@ -5,13 +5,16 @@ import 'repositories/favorites_repository.dart';
 import 'repositories/playlist_repository.dart';
 import 'repositories/recently_played_repository.dart';
 import 'repositories/track_repository.dart';
+import 'services/audio_handler.dart';
 import 'services/local_storage_service.dart';
 import 'services/music_algorithm_service.dart';
 import 'services/music_cache_service.dart';
 import 'services/music_catalog_aggregator.dart';
 import 'services/music_catalog_provider.dart';
 import 'services/music_discovery_service.dart';
+import 'services/playback/direct_audio_backend.dart';
 import 'services/playback/youtube_iframe_backend.dart';
+import 'services/saavn_api_service.dart';
 import 'services/youtube/youtube_player_service.dart';
 import 'services/youtube_api_service.dart';
 import 'theme/app_colors.dart';
@@ -69,15 +72,18 @@ void main() async {
     cache: cacheService,
   );
 
-  // 9. Initialize the YouTube IFrame player service. It is created here (not
-  // inside a widget) so playback state and the current video survive route
-  // changes; the WebView host attaches itself once, above the Navigator.
+  // 9. Initialize the YouTube IFrame player service.
   final youtubePlayerService = YouTubePlayerService();
 
   // 10. Build the YouTube IFrame playback backend
   final youtubeIframeBackend = YouTubeIframeBackend(
     service: youtubePlayerService,
   );
+
+  // 11. Initialize Native Audio Service for Background Play & 320kbps Streams
+  final audioHandler = await initAudioService();
+  final directBackend = DirectAudioBackend(audioHandler: audioHandler);
+  final saavnService = SaavnApiService();
 
   runApp(
     GoTuneApp(
@@ -89,6 +95,9 @@ void main() async {
       algorithmService: algorithmService,
       youtubeIframeBackend: youtubeIframeBackend,
       youtubePlayerService: youtubePlayerService,
+      audioHandler: audioHandler,
+      directBackend: directBackend,
+      saavnService: saavnService,
     ),
   );
 }

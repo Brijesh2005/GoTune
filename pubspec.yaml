@@ -12,8 +12,12 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
 
+  # Audio playback & Background Audio Service
+  just_audio: ^0.9.40
+  audio_service: ^0.18.17
+  audio_session: ^0.1.21
+
   # Embedded YouTube IFrame player host (Android WebView).
-  # Used only to host the official IFrame Player API; no stream extraction.
   webview_flutter: ^4.7.0
   webview_flutter_android: ^3.16.0
 
@@ -25,8 +29,10 @@ dependencies:
   provider: ^6.1.2
   shared_preferences: ^2.3.2
 
-  # Utilities
+  # Utilities & Music Catalogs
   intl: ^0.19.0
+  saavn_play: ^1.2.0
+  dart_des: ^1.0.2
 
 dev_dependencies:
   flutter_test:
